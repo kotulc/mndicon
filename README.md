@@ -1,2 +1,2 @@
-# mndicon
-Relevance based svg icon composition
+# MndIcon
+Generative branding via svg icon composition 
