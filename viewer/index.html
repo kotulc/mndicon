@@ -123,6 +123,7 @@ const logo = {
   flat:   { show: true, scale: 1, dx: 0, dy: 0 },
   rect:   { show: false, ink: 'bg', w: 1, h: 1, rx: 14, dx: 0, dy: 0 },
   circle: { show: false, ink: 'bg', scale: 1, dx: 0, dy: 0 },
+  width: 150, width_auto: true,  // canvas width: auto-fits icon+title until the user drags the slider
 }
 let title_markup = null                       // cached <text data-role="title">...</text>, same for every candidate
 
@@ -368,7 +369,7 @@ function swap_icon(el, role, name) {
 
 function render_part_rows(container) {
   state.title_parts.forEach((text, i) => {
-    const p = parts[i] || (parts[i] = { show: true, weight: 600, scale: 1, dx: 0, typeset: 'geometric' })
+    const p = parts[i] || (parts[i] = { show: true, weight: 600, scale: 1, dx: 0, dy: 0, typeset: 'geometric' })
     const row = document.createElement('div')
     row.className = 'row'
     row.innerHTML = `<b>“${text}”</b>
@@ -376,6 +377,7 @@ function render_part_rows(container) {
         <label>show <input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}></label>
         <label>size <input type="range" data-k="scale" min="0.4" max="1.6" step="0.05" value="${p.scale}"></label>
         <label>x <input type="range" data-k="dx" min="-40" max="40" value="${p.dx}"></label>
+        <label>y <input type="range" data-k="dy" min="-20" max="20" value="${p.dy}"></label>
         <label>weight <select data-k="weight">
           ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
         </select></label>
@@ -403,6 +405,19 @@ function logo_card() {
   el.querySelector('.save').onclick = save_logo
 
   const rows = el.querySelector('.rows')
+  const width_row = document.createElement('div')
+  width_row.className = 'row'
+  width_row.innerHTML = `<b>canvas</b>
+    <div class="fields">
+      <label>width <input type="range" data-k="width" min="120" max="700" step="10" value="${logo.width}"></label>
+    </div>`
+  width_row.querySelector('input').oninput = e => {
+    logo.width_auto = false
+    logo.width = +e.target.value
+    apply()
+  }
+  rows.appendChild(width_row)
+
   const flat_row = document.createElement('div')
   flat_row.className = 'row'
   flat_row.innerHTML = `<b>icon</b>
@@ -465,8 +480,9 @@ function rebuild_logo_dom() {
   const flat   = `<svg data-role="flat" x="0" y="0" width="96" height="96" viewBox="0 0 96 96">${src.innerHTML}</svg>`
   const circle = `<circle data-role="circle" cx="48" cy="48" r="48" fill="var(--bg, #52525b)"/>`
   const rect   = `<rect data-role="rect" x="0" y="0" width="96" height="96" rx="14" fill="var(--bg, #52525b)"/>`
-  const width  = Math.ceil(96 + 20 + state.title_parts.join(state.sep).length * 42 * 0.75 + 8)
-  const svg    = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} 96">` +
+  // Placeholder width only: apply() immediately recomputes it from actual rendered
+  // content (or the user's manual override) before anything is shown on screen
+  const svg    = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${logo.width} 96">` +
                  `${rect}${circle}${flat}${extract_title()}</svg>`
 
   logo_card_el.querySelector('.panel.light .main').innerHTML = instance(svg, 100)
@@ -493,36 +509,55 @@ function apply() {
   }
 
   // Phase 2: rebuild the logo card from the now-current selection, then tune
-  // its own components. The rebuilt flat/rect/circle nest fresh each time, so
-  // any embedded solid/frame/fore nodes from the flattened icon have no entry
-  // in `logo` and are correctly skipped (they're frozen, not re-tuned here).
+  // its own components in three passes, because rect/circle sizing needs the
+  // FINAL canvas width and that width (in auto mode) is measured from the
+  // already-tuned icon+title — so it can't all happen in one pass:
+  //   1. title + flat icon (their geometry never depends on canvas width);
+  //      rect/circle are force-hidden here so they can't skew the measurement
+  //   2. measure the tuned content and fix the canvas width (auto-fit or the
+  //      user's manual override), sized generously enough that nothing clips
+  //   3. rect/circle, whose width-relative sizing can now read a true value
   rebuild_logo_dom()
-  for (const el of document.getElementById('logo-card').querySelectorAll('[data-role]')) {
+  const logo_el = document.getElementById('logo-card')
+
+  for (const el of logo_el.querySelectorAll('[data-role]')) {
     const role = el.dataset.role
     if (role === 'title') { apply_title(el); continue }
-    const c = logo[role]
-    if (!c) continue
+    if (role === 'rect' || role === 'circle') { el.style.display = 'none'; continue }
+    const c = logo.flat
+    el.style.display = c.show ? '' : 'none'
+    const w = 96 * c.scale
+    el.setAttribute('width', w); el.setAttribute('height', w)
+    el.setAttribute('x', 48 + c.dx - w / 2); el.setAttribute('y', 48 + c.dy - w / 2)
+  }
 
+  const light_svg = logo_el.querySelector('.panel.light .main svg')
+  const dark_svg  = logo_el.querySelector('.panel.dark .main svg')
+  if (light_svg && dark_svg) {
+    const box = light_svg.getBBox()
+    const w = logo.width_auto ? Math.max(120, Math.ceil(box.x + box.width + 8)) : logo.width
+    light_svg.setAttribute('viewBox', `0 0 ${w} 96`)
+    dark_svg.setAttribute('viewBox', `0 0 ${w} 96`)
+    const width_input = logo_el.querySelector('[data-k="width"]')
+    if (width_input && logo.width_auto) width_input.value = w
+  }
+
+  for (const el of logo_el.querySelectorAll('[data-role="rect"], [data-role="circle"]')) {
+    const role = el.dataset.role
+    const c = logo[role]
     el.style.display = c.show ? '' : 'none'
     if (c.ink) el.setAttribute('fill', ink_css(c.ink))
+    const vbw = el.ownerSVGElement.viewBox.baseVal.width
 
     if (role === 'rect') {
-      // Width is a fraction of the logo's own (wider, title-inclusive) canvas
-      // width, not a fixed 96 — otherwise the shape could never reach full width
-      const vbw = el.ownerSVGElement.viewBox.baseVal.width
       const w = vbw * c.w, h = 96 * c.h
       el.setAttribute('width', w); el.setAttribute('height', h)
       el.setAttribute('x', (vbw - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
       el.setAttribute('rx', c.rx)
-    } else if (role === 'circle') {
-      const vbw = el.ownerSVGElement.viewBox.baseVal.width
+    } else {
       el.setAttribute('cx', vbw / 2 + c.dx)
       el.setAttribute('cy', 48 + c.dy)
       el.setAttribute('r', 48 * c.scale)
-    } else if (role === 'flat') {
-      const w = 96 * c.scale
-      el.setAttribute('width', w); el.setAttribute('height', w)
-      el.setAttribute('x', 48 + c.dx - w / 2); el.setAttribute('y', 48 + c.dy - w / 2)
     }
   }
 }
@@ -542,6 +577,7 @@ function apply_title(text) {
     span.setAttribute('font-weight', p.weight)
     span.setAttribute('font-size', 42 * p.scale)
     span.setAttribute('dx', p.dx)
+    span.setAttribute('dy', p.dy)
   })
 }
 
