@@ -2,4 +2,4 @@
 title: ['MND', 'icon']
 # seed: 1          # integer; omit for a random seed (shown in the viewer)
 output: ./brand
-port: 8646
+port: 8645

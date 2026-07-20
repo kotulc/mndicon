@@ -13,7 +13,8 @@ const { ICON_ROLES, load_icon } = require('./icons')
 const { generate_candidates, title_parts } = require('./generate')
 
 
-const PAGE = path.join(__dirname, '..', 'viewer', 'index.html')
+const PAGE   = path.join(__dirname, '..', 'viewer', 'index.html')
+const ASSETS = path.join(__dirname, '..', 'assets')
 
 // Icon name -> inner markup, sent once so the viewer's icon dropdowns can swap in place
 const ICON_BODIES = Object.fromEntries(
@@ -31,6 +32,11 @@ function create_server(config) {
 
     if (req.method === 'GET' && req.url === '/') return send(200, 'text/html', fs.readFileSync(PAGE))
     if (req.method === 'GET' && req.url === '/api/candidates') return json(200, current)
+    if (req.method === 'GET' && req.url.startsWith('/assets/')) {
+      // basename strips any path traversal; the viewer only ever requests a known asset like logo.svg
+      const file = path.join(ASSETS, path.basename(req.url))
+      return fs.existsSync(file) ? send(200, 'image/svg+xml', fs.readFileSync(file)) : json(404, { error: 'not found' })
+    }
     if (req.method !== 'POST') return json(404, { error: 'not found' })
 
     let body = ''

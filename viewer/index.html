@@ -33,7 +33,7 @@
   header button { padding: 6px 14px; border: 0; border-radius: 6px; background: #fafafa;
                   color: #18181b; font: inherit; font-weight: 600; cursor: pointer }
   #theme-toggle { background: #27272a; color: #fafafa; border: 1px solid #52525b }
-  #swatches { display: flex; gap: 6px }
+  header h1 svg { height: 26px; display: block }
   .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent;
             cursor: pointer; padding: 0 }
   .swatch.active { border-color: #fafafa }
@@ -43,9 +43,10 @@
               text-transform: uppercase; letter-spacing: 0.04em }
   .rows { background: var(--pg-card); border: 1px solid var(--pg-border);
           border-radius: 10px; padding: 6px 14px; font-size: 13px }
-  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 6px 0 }
+  .row { display: grid; grid-template-columns: 74px 1fr; align-items: start; gap: 12px; padding: 6px 0 }
   .row + .row { border-top: 1px solid var(--pg-border) }
-  .row b { width: 74px; font-weight: 600; color: var(--pg-text) }
+  .row b { font-weight: 600; color: var(--pg-text) }
+  .row .fields { display: flex; flex-wrap: wrap; align-items: center; gap: 12px }
   .row label { display: flex; align-items: center; gap: 5px; color: var(--pg-muted) }
   .row input[type=range] { width: 84px }
   .row select { font: inherit; padding: 2px 4px; max-width: 150px; background: var(--pg-card);
@@ -56,6 +57,7 @@
   .ink-btn.active { border-color: var(--pg-text) }
   .ink-btn[data-ink=bg] { background: var(--bg) }
   .ink-btn[data-ink=fg] { background: var(--fg) }
+  .ink-btn[data-ink=ac] { background: var(--ac) }
 
   main { display: grid; gap: 20px; padding: 20px; max-width: 1100px; margin: 0 auto }
   .card { background: var(--pg-card); border: 1px solid var(--pg-border); border-radius: 12px;
@@ -93,8 +95,7 @@
 </head>
 <body>
 <header>
-  <h1>mndicon</h1>
-  <div id="swatches"></div>
+  <h1 id="brand">mndicon</h1>
   <label for="seed">seed</label>
   <input id="seed" type="number" placeholder="random">
   <button id="regen">Regenerate</button>
@@ -110,8 +111,8 @@
 <script>
 let state = null                              // last /api payload
 let selected = 0                              // index of the selected template card (feeds the logo card's icon)
-// Colors as Nextra-style hue/saturation/lightness; primary = bg, secondary = fg
-let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l: 34 } }
+// Colors as Nextra-style hue/saturation/lightness; primary = bg, secondary = fg, accent = ac
+let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l: 34 }, ac: { h: 0, s: 0, l: 0 } }
 const comps = {}                              // cand index -> role -> tuner state (incl. ink: 'fg'|'bg'|null)
 const chosen = {}                             // cand index -> role -> icon name override
 const parts = []                              // title part -> { show, ink, weight, scale, dx, typeset }
@@ -139,8 +140,10 @@ function css_hsl(c) {
   return `hsl(${c.h} ${c.s}% ${c.l}%)`
 }
 
+const INK_FALLBACK = { fg: '#fafafa', bg: '#52525b', ac: '#000000' }
+
 function ink_css(slot) {
-  return slot === 'fg' ? 'var(--fg, #fafafa)' : 'var(--bg, #52525b)'
+  return `var(--${slot}, ${INK_FALLBACK[slot]})`
 }
 
 function parse_hsl(color) {
@@ -213,15 +216,34 @@ function select(index) {
 function render_color_rows() {
   const box = document.getElementById('color-rows')
   box.innerHTML = ''
-  for (const [label, slot] of [['primary', 'bg'], ['secondary', 'fg']]) {
+
+  const theme_row = document.createElement('div')
+  theme_row.className = 'row'
+  theme_row.innerHTML = `<b>themes</b><div class="fields"></div>`
+  const fields = theme_row.querySelector('.fields')
+  state.schemes.forEach(scheme => {
+    const btn = document.createElement('button')
+    btn.className = 'swatch'
+    btn.title = scheme.name
+    btn.dataset.name = scheme.name
+    btn.style.background = `linear-gradient(135deg, ${scheme.bg} 60%, ${scheme.fg} 60%)`
+    btn.onclick = () => set_scheme(scheme)
+    fields.appendChild(btn)
+  })
+  box.appendChild(theme_row)
+
+  for (const [label, slot] of [['primary', 'bg'], ['secondary', 'fg'], ['accent', 'ac']]) {
     const c = current[slot]
     const row = document.createElement('div')
     row.className = 'row'
+    row.dataset.slot = slot
     row.innerHTML = `<b>${label}</b>
-      <label>hue <input type="range" data-k="h" min="0" max="360" value="${c.h}"></label>
-      <label>saturation <input type="range" data-k="s" min="0" max="100" value="${c.s}"></label>
-      <label>lightness <input type="range" data-k="l" min="0" max="100" value="${c.l}"></label>
-      <span class="chip"></span>`
+      <div class="fields">
+        <label>hue <input type="range" data-k="h" min="0" max="360" value="${c.h}"></label>
+        <label>saturation <input type="range" data-k="s" min="0" max="100" value="${c.s}"></label>
+        <label>lightness <input type="range" data-k="l" min="0" max="100" value="${c.l}"></label>
+        <span class="chip"></span>
+      </div>`
     row.querySelectorAll('input').forEach(input => {
       input.oninput = () => {
         current[slot][input.dataset.k] = +input.value
@@ -238,8 +260,9 @@ function apply_colors() {
   // Set on body (not just #grid) so tuner ink swatches, a #grid sibling, can read them too
   document.body.style.setProperty('--fg', css_hsl(current.fg))
   document.body.style.setProperty('--bg', css_hsl(current.bg))
-  document.querySelectorAll('#color-rows .row').forEach((row, i) => {
-    const c = current[i === 0 ? 'bg' : 'fg']
+  document.body.style.setProperty('--ac', css_hsl(current.ac))
+  document.querySelectorAll('#color-rows .row[data-slot]').forEach(row => {
+    const c = current[row.dataset.slot]
     row.querySelectorAll('input').forEach(input => { input.value = c[input.dataset.k] })
     row.querySelector('.chip').style.background = css_hsl(c)
   })
@@ -249,30 +272,19 @@ function apply_colors() {
 }
 
 function set_scheme(scheme) {
-  current = { scheme: scheme.name, fg: parse_hsl(scheme.fg), bg: parse_hsl(scheme.bg) }
+  // Presets only define primary/secondary; accent is independent and stays as-is
+  current = { scheme: scheme.name, fg: parse_hsl(scheme.fg), bg: parse_hsl(scheme.bg), ac: current.ac }
   apply_colors()
-}
-
-function render_swatches() {
-  const box = document.getElementById('swatches')
-  state.schemes.forEach(scheme => {
-    const btn = document.createElement('button')
-    btn.className = 'swatch'
-    btn.title = scheme.name
-    btn.dataset.name = scheme.name
-    btn.style.background = `linear-gradient(135deg, ${scheme.bg} 60%, ${scheme.fg} 60%)`
-    btn.onclick = () => set_scheme(scheme)
-    box.appendChild(btn)
-  })
 }
 
 // --- Shared row controls (icon layers, logo components, and title parts all use this) ---
 
 function ink_html() {
-  // Two swatches assigning this component to the primary (bg) or secondary (fg) color
+  // Swatches assigning this component to the primary (bg), secondary (fg), or accent (ac) color
   return `<label>color
     <button type="button" class="ink-btn" data-ink="bg" title="primary"></button>
     <button type="button" class="ink-btn" data-ink="fg" title="secondary"></button>
+    <button type="button" class="ink-btn" data-ink="ac" title="accent"></button>
   </label>`
 }
 
@@ -320,14 +332,16 @@ function render_comp_rows(index, container) {
     const row = document.createElement('div')
     row.className = 'row'
     row.innerHTML = `<b>${role}</b>
-      <label><input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}> show</label>
-      ${paintable ? ink_html() : ''}
-      <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
-      <label>x <input type="range" data-k="dx" min="-48" max="48" value="${c.dx}"></label>
-      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${c.dy}"></label>
-      <label>icon <select data-k="icon">
-        ${state.icon_roles[role].map(n => `<option ${n === ((chosen[index] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
-      </select></label>`
+      <div class="fields">
+        <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
+        <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
+        <label>x <input type="range" data-k="dx" min="-48" max="48" value="${c.dx}"></label>
+        <label>y <input type="range" data-k="dy" min="-48" max="48" value="${c.dy}"></label>
+        <label>icon <select data-k="icon">
+          ${state.icon_roles[role].map(n => `<option ${n === ((chosen[index] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
+        </select></label>
+        ${paintable ? ink_html() : ''}
+      </div>`
     wire_row(row, c, { icon: name => set_icon(index, role, name) })
     container.appendChild(row)
   }
@@ -352,15 +366,17 @@ function render_part_rows(container) {
     const row = document.createElement('div')
     row.className = 'row'
     row.innerHTML = `<b>“${text}”</b>
-      <label><input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}> show</label>
-      <label>weight <select data-k="weight">
-        ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
-      </select></label>
-      <label>size <input type="range" data-k="scale" min="0.4" max="1.6" step="0.05" value="${p.scale}"></label>
-      <label>x <input type="range" data-k="dx" min="-40" max="40" value="${p.dx}"></label>
-      <label>typeset <select data-k="typeset">
-        ${Object.keys(state.typesets).map(t => `<option ${t === p.typeset ? 'selected' : ''}>${t}</option>`).join('')}
-      </select></label>`
+      <div class="fields">
+        <label>show <input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}></label>
+        <label>size <input type="range" data-k="scale" min="0.4" max="1.6" step="0.05" value="${p.scale}"></label>
+        <label>x <input type="range" data-k="dx" min="-40" max="40" value="${p.dx}"></label>
+        <label>weight <select data-k="weight">
+          ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
+        </select></label>
+        <label>typeset <select data-k="typeset">
+          ${Object.keys(state.typesets).map(t => `<option ${t === p.typeset ? 'selected' : ''}>${t}</option>`).join('')}
+        </select></label>
+      </div>`
     wire_row(row, p, { typeset: t => { p.typeset = t; apply() } })
     container.appendChild(row)
   })
@@ -384,34 +400,40 @@ function logo_card() {
   const flat_row = document.createElement('div')
   flat_row.className = 'row'
   flat_row.innerHTML = `<b>icon</b>
-    <label><input type="checkbox" data-k="show" ${logo.flat.show ? 'checked' : ''}> show</label>
-    <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.flat.scale}"></label>
-    <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.flat.dx}"></label>
-    <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.flat.dy}"></label>`
+    <div class="fields">
+      <label>show <input type="checkbox" data-k="show" ${logo.flat.show ? 'checked' : ''}></label>
+      <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.flat.scale}"></label>
+      <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.flat.dx}"></label>
+      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.flat.dy}"></label>
+    </div>`
   wire_row(flat_row, logo.flat)
   rows.appendChild(flat_row)
 
   const circle_row = document.createElement('div')
   circle_row.className = 'row'
   circle_row.innerHTML = `<b>circle</b>
-    <label><input type="checkbox" data-k="show" ${logo.circle.show ? 'checked' : ''}> show</label>
-    ${ink_html()}
-    <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.circle.scale}"></label>
-    <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.circle.dx}"></label>
-    <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.circle.dy}"></label>`
+    <div class="fields">
+      <label>show <input type="checkbox" data-k="show" ${logo.circle.show ? 'checked' : ''}></label>
+      <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.circle.scale}"></label>
+      <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.circle.dx}"></label>
+      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.circle.dy}"></label>
+      ${ink_html()}
+    </div>`
   wire_row(circle_row, logo.circle)
   rows.appendChild(circle_row)
 
   const rect_row = document.createElement('div')
   rect_row.className = 'row'
   rect_row.innerHTML = `<b>rect</b>
-    <label><input type="checkbox" data-k="show" ${logo.rect.show ? 'checked' : ''}> show</label>
-    ${ink_html()}
-    <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${logo.rect.w}"></label>
-    <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${logo.rect.h}"></label>
-    <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.rect.dx}"></label>
-    <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.rect.dy}"></label>
-    <label>round <input type="range" data-k="rx" min="0" max="48" value="${logo.rect.rx}"></label>`
+    <div class="fields">
+      <label>show <input type="checkbox" data-k="show" ${logo.rect.show ? 'checked' : ''}></label>
+      <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${logo.rect.w}"></label>
+      <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${logo.rect.h}"></label>
+      <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.rect.dx}"></label>
+      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.rect.dy}"></label>
+      ${ink_html()}
+      <label>round <input type="range" data-k="rx" min="0" max="48" value="${logo.rect.rx}"></label>
+    </div>`
   wire_row(rect_row, logo.rect)
   rows.appendChild(rect_row)
 
@@ -518,6 +540,7 @@ function apply_title(text) {
 function bake(svg) {
   return svg.replace(/var\(--fg[^)]*\)/g, css_hsl(current.fg))
             .replace(/var\(--bg[^)]*\)/g, css_hsl(current.bg))
+            .replace(/var\(--ac[^)]*\)/g, css_hsl(current.ac))
 }
 
 function serialize(el) {
@@ -594,9 +617,13 @@ document.getElementById('theme-toggle').onclick = () => {
   document.getElementById('theme-toggle').textContent = root.dataset.theme === 'dark' ? '☀' : '☾'
 }
 
+// Swap the "mndicon" text for a saved brand logo.svg, if one exists in assets/
+fetch('/assets/logo.svg').then(res => {
+  if (res.ok) res.text().then(svg => { document.getElementById('brand').innerHTML = svg })
+})
+
 api('/api/candidates').then(data => {
   state = data
-  render_swatches()
   set_scheme(state.schemes.find(s => s.name === 'grey'))
   render()
   render_color_rows()

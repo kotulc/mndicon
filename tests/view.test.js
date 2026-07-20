@@ -65,6 +65,26 @@ describe('view server', () => {
     expect(data.icon_bodies.activity).toMatch(/<path/)
   })
 
+  test('test_get_asset_logo', async () => {
+    /** GET /assets/logo.svg serves the checked-in brand logo used for header branding. */
+    const { status, data } = await request('GET', '/assets/logo.svg')
+    expect(status).toBe(200)
+    expect(data).toMatch(/^<svg /)
+  })
+
+  test('test_get_asset_missing', async () => {
+    /** A request for a nonexistent asset 404s instead of throwing. */
+    const { status } = await request('GET', '/assets/nonexistent.svg')
+    expect(status).toBe(404)
+  })
+
+  test('test_get_asset_blocks_traversal', async () => {
+    /** basename() reduces any path to its final segment, so '../../package.json'
+     *  resolves to assets/package.json (absent), never escaping the assets dir. */
+    const { status } = await request('GET', '/assets/../../package.json')
+    expect(status).toBe(404)
+  })
+
   test('test_regenerate_deterministic', async () => {
     /** POST /api/regenerate with a fixed seed returns identical sets. */
     const a = await request('POST', '/api/regenerate', { seed: 99 })

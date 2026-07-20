@@ -19,16 +19,16 @@ const ROLES = ['frame', 'solid', 'fore']
 const TEMPLATES = {
   overlay: [
     { role: 'solid', dx: 0, size: 1.0, ink: 'bg' },
-    { role: 'fore',  dx: 0, size: 0.8, ink: 'fg' },
+    { role: 'fore',  dx: 0, size: 0.7, ink: 'fg' },
   ],
   cutout: [
     { role: 'solid', dx: 0, size: 1.0,  ink: 'bg' },
-    { role: 'fore',  dx: 0, size: 0.75, cut: true },
+    { role: 'fore',  dx: 0, size: 0.7, cut: true },
   ],
   frame: [
     { role: 'solid', dx: 0, size: 1.0, ink: 'bg' },
-    { role: 'frame', dx: 0, size: 0.9, ink: 'fg' },
-    { role: 'fore',  dx: 0, size: 0.8, ink: 'fg' },
+    { role: 'frame', dx: 0, size: 0.75, ink: 'fg' },
+    { role: 'fore',  dx: 0, size: 0.5, ink: 'fg' },
   ],
 }
 
