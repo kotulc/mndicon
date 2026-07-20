@@ -25,15 +25,15 @@
   body { background: var(--pg); color: var(--pg-text) }
 
   header { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 20px;
-           background: #18181b; color: #fafafa }
+           background: var(--pg-card); color: var(--pg-text); border-bottom: 1px solid var(--pg-border) }
   header h1 { font-size: 18px; font-weight: 700; margin-right: auto }
   header label { display: flex; align-items: center; gap: 6px; font-size: 13px }
-  header input[type=number] { width: 110px; padding: 6px 8px; border: 1px solid #52525b;
-                              border-radius: 6px; background: #27272a; color: #fafafa; font: inherit }
-  header button { padding: 6px 14px; border: 0; border-radius: 6px; background: #fafafa;
-                  color: #18181b; font: inherit; font-weight: 600; cursor: pointer }
-  #theme-toggle { background: #27272a; color: #fafafa; border: 1px solid #52525b }
-  header h1 svg { height: 26px; display: block }
+  header input[type=number] { width: 110px; padding: 6px 8px; border: 1px solid var(--pg-border);
+                              border-radius: 6px; background: var(--pg); color: var(--pg-text); font: inherit }
+  header button { padding: 6px 14px; border: 0; border-radius: 6px; background: var(--pg-text);
+                  color: var(--pg-card); font: inherit; font-weight: 600; cursor: pointer }
+  #theme-toggle { background: var(--pg); color: var(--pg-text); border: 1px solid var(--pg-border) }
+  header h1 svg { height: 32px; display: block }
   .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent;
             cursor: pointer; padding: 0 }
   .swatch.active { border-color: #fafafa }
@@ -44,8 +44,10 @@
   .rows { background: var(--pg-card); border: 1px solid var(--pg-border);
           border-radius: 10px; padding: 6px 14px; font-size: 13px }
   .row { display: grid; grid-template-columns: 74px 1fr; align-items: start; gap: 12px; padding: 6px 0 }
+  .row.icon-row { grid-template-columns: 28px 1fr }
   .row + .row { border-top: 1px solid var(--pg-border) }
   .row b { font-weight: 600; color: var(--pg-text) }
+  .row .thumb { width: 22px; height: 22px; color: var(--pg-text) }
   .row .fields { display: flex; flex-wrap: wrap; align-items: center; gap: 12px }
   .row label { display: flex; align-items: center; gap: 5px; color: var(--pg-muted) }
   .row input[type=range] { width: 84px }
@@ -329,9 +331,10 @@ function render_comp_rows(index, container) {
     const fill = card_el.querySelector(`[data-role="${role}"]`).getAttribute('fill') || ''
     const paintable = fill.startsWith('var(')
     const c = comp_state(index, role, { ink: paintable ? (fill.includes('--fg') ? 'fg' : 'bg') : null })
+    const name = (chosen[index] || {})[role] || cand.icons[role]
     const row = document.createElement('div')
-    row.className = 'row'
-    row.innerHTML = `<b>${role}</b>
+    row.className = 'row icon-row'
+    row.innerHTML = `<svg data-thumb="${role}" viewBox="0 0 16 16" class="thumb" fill="currentColor">${state.icon_bodies[name]}</svg>
       <div class="fields">
         <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
         <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
@@ -349,7 +352,10 @@ function render_comp_rows(index, container) {
 
 function set_icon(index, role, name) {
   (chosen[index] || (chosen[index] = {}))[role] = name
-  swap_icon(document.querySelector(`.card[data-index="${index}"]`), role, name)
+  const card_el = document.querySelector(`.card[data-index="${index}"]`)
+  swap_icon(card_el, role, name)
+  const thumb = card_el.querySelector(`[data-thumb="${role}"]`)
+  if (thumb) thumb.innerHTML = state.icon_bodies[name]
   apply()
 }
 
@@ -501,12 +507,16 @@ function apply() {
     if (c.ink) el.setAttribute('fill', ink_css(c.ink))
 
     if (role === 'rect') {
-      const w = 96 * c.w, h = 96 * c.h
+      // Width is a fraction of the logo's own (wider, title-inclusive) canvas
+      // width, not a fixed 96 — otherwise the shape could never reach full width
+      const vbw = el.ownerSVGElement.viewBox.baseVal.width
+      const w = vbw * c.w, h = 96 * c.h
       el.setAttribute('width', w); el.setAttribute('height', h)
-      el.setAttribute('x', (96 - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
+      el.setAttribute('x', (vbw - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
       el.setAttribute('rx', c.rx)
     } else if (role === 'circle') {
-      el.setAttribute('cx', 48 + c.dx)
+      const vbw = el.ownerSVGElement.viewBox.baseVal.width
+      el.setAttribute('cx', vbw / 2 + c.dx)
       el.setAttribute('cy', 48 + c.dy)
       el.setAttribute('r', 48 * c.scale)
     } else if (role === 'flat') {

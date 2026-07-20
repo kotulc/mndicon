@@ -1,10 +1,10 @@
 title: MNDicon
-seed: 522669835
-template: overlay
+seed: 577078978
+template: cutout
 icons:
-  solid: square-fill
-  fore: crop
-scheme: blue
+  solid: hexagon-fill
+  fore: boxes
+scheme: grey
 colors:
-  fg: '#fbf2df'
-  bg: '#2857bd'
+  fg: hsl(0 0% 98%)
+  bg: hsl(240 5% 34%)
