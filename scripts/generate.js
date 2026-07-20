@@ -6,7 +6,7 @@
  */
 const { ICON_ROLES, load_icon } = require('./icons')
 const { compose_icon, compose_logo } = require('./compose')
-const { TEMPLATES, resolve_template } = require('./templates')
+const { PRIMITIVES, TEMPLATES, resolve_template } = require('./templates')
 
 
 function create_rng(seed) {
@@ -30,7 +30,7 @@ function generate_candidates(config) {
   const candidates = Object.keys(TEMPLATES).map((template, index) => {
     const icons = {}
     const layers = resolve_template(template).map(layer => {
-      if (layer.role === 'rect') return { ...layer, body: '' }
+      if (PRIMITIVES.includes(layer.role)) return { ...layer, body: '' }
       const name = pick(rng, ICON_ROLES[layer.role])
       icons[layer.role] = name
       return { ...layer, body: load_icon(name).body }

@@ -32,8 +32,12 @@ primary/secondary color pickers, a `title` toggle, seeded Regenerate, and the ti
 (per-part show/color/weight/size/position plus a typeset dropdown). The icon tuner follows
 the selected candidate card (click to select, first by default): per-layer icon dropdowns,
 show/size/position sliders, and rect width/height/roundness. Save serializes the tuned SVGs
-and writes `icon.svg`, `logo.svg`, `favicon-16/32.png` and a `brand.yaml` provenance record.
+and writes `icon.svg`, `logo.svg`, `favicon-16/32.png` and a `logo.yaml` provenance record.
 Favicons are rasterized in the browser, so saved output matches the preview.
+
+See [docs/customizing.md](docs/customizing.md) for editing icons, color schemes, and templates
+(including the supported SVG composition operations), and
+[docs/architecture.md](docs/architecture.md) for how each component is wired.
 
 Composition templates are plain data in `scripts/templates.js`: each template is an ordered
 list of layers on the 96x96 canvas with `role` (icon pool, or `rect` = canvas fill), `dx`

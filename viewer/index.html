@@ -1,63 +1,71 @@
 <!doctype html>
-<!-- mndicon viewer: global color/title controls plus an always-visible tuner.
-     The icon editor group follows the selected candidate card (outlined, first
-     by default): per-layer icon dropdowns, size/position/visibility, and rect
-     width/height/roundness. Title part rows are global. Edits happen directly
-     in the inline SVG DOM and the tuned SVGs are serialized on save (favicons
-     rasterized here via canvas). -->
-<html lang="en">
+<!-- mndicon viewer: dark/light page theme (dark default), Nextra-style H/S/L
+     color sliders for primary (bg) and secondary (fg), preset swatches, and an
+     always-visible tuner. The icon group follows the selected candidate card:
+     per-layer icon dropdowns, size/position/visibility, rect width relative to
+     each svg's full canvas (so it can span icon + title), and circle support.
+     Mask ids are made unique per injected svg copy so cutouts render in every
+     instance. Tuned SVGs are serialized on save (favicons rasterized here). -->
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>mndicon</title>
 <style>
-  :root { color-scheme: light; font-family: Avenir, Montserrat, Corbel, 'Segoe UI', sans-serif }
+  :root { color-scheme: dark; font-family: Avenir, Montserrat, Corbel, 'Segoe UI', sans-serif;
+          --pg: #131316; --pg-card: #1d1d21; --pg-border: #33333a;
+          --pg-text: #fafafa; --pg-muted: #a1a1aa }
+  html[data-theme=light] { color-scheme: light;
+          --pg: #f4f4f5; --pg-card: #ffffff; --pg-border: #e4e4e7;
+          --pg-text: #18181b; --pg-muted: #71717a }
   * { box-sizing: border-box; margin: 0 }
-  body { background: #f4f4f5; color: #18181b }
+  body { background: var(--pg); color: var(--pg-text) }
 
   header { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 20px;
            background: #18181b; color: #fafafa }
   header h1 { font-size: 18px; font-weight: 700; margin-right: auto }
   header label { display: flex; align-items: center; gap: 6px; font-size: 13px }
-  header input[type=color] { width: 34px; height: 26px; padding: 0; border: 1px solid #52525b;
-                             border-radius: 6px; background: none; cursor: pointer }
   header input[type=number] { width: 110px; padding: 6px 8px; border: 1px solid #52525b;
                               border-radius: 6px; background: #27272a; color: #fafafa; font: inherit }
   header button { padding: 6px 14px; border: 0; border-radius: 6px; background: #fafafa;
                   color: #18181b; font: inherit; font-weight: 600; cursor: pointer }
+  #theme-toggle { background: #27272a; color: #fafafa; border: 1px solid #52525b }
   #swatches { display: flex; gap: 6px }
   .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent;
             cursor: pointer; padding: 0 }
   .swatch.active { border-color: #fafafa }
 
   #tuner { max-width: 1100px; margin: 12px auto 0; padding: 0 20px; font-size: 13px }
-  #tuner h3 { font-size: 12px; font-weight: 600; color: #52525b; margin: 10px 0 4px;
+  #tuner h3 { font-size: 12px; font-weight: 600; color: var(--pg-muted); margin: 10px 0 4px;
               text-transform: uppercase; letter-spacing: 0.04em }
-  #tuner .rows { background: #fff; border: 1px solid #e4e4e7; border-radius: 10px;
-                 padding: 6px 14px }
+  #tuner .rows { background: var(--pg-card); border: 1px solid var(--pg-border);
+                 border-radius: 10px; padding: 6px 14px }
   .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 6px 0 }
-  .row + .row { border-top: 1px solid #f4f4f5 }
-  .row b { width: 60px; font-weight: 600; color: #3f3f46 }
-  .row label { display: flex; align-items: center; gap: 5px; color: #71717a }
+  .row + .row { border-top: 1px solid var(--pg-border) }
+  .row b { width: 74px; font-weight: 600; color: var(--pg-text) }
+  .row label { display: flex; align-items: center; gap: 5px; color: var(--pg-muted) }
   .row input[type=range] { width: 84px }
-  .row input[type=color] { width: 28px; height: 22px; padding: 0; border: 1px solid #d4d4d8;
-                           border-radius: 4px; background: none; cursor: pointer }
-  .row select { font: inherit; padding: 2px 4px; max-width: 150px }
+  .row input[type=color] { width: 28px; height: 22px; padding: 0;
+                           border: 1px solid var(--pg-border); border-radius: 4px;
+                           background: none; cursor: pointer }
+  .row select { font: inherit; padding: 2px 4px; max-width: 150px; background: var(--pg-card);
+                color: var(--pg-text); border: 1px solid var(--pg-border); border-radius: 4px }
+  .chip { width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--pg-border) }
 
   main { display: grid; gap: 20px; padding: 20px; max-width: 1100px; margin: 0 auto }
-  .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 16px;
-          cursor: pointer }
-  .card.selected { border-color: #18181b; box-shadow: 0 0 0 1px #18181b }
+  .card { background: var(--pg-card); border: 1px solid var(--pg-border); border-radius: 12px;
+          padding: 16px; cursor: pointer }
+  .card.selected { border-color: var(--pg-text); box-shadow: 0 0 0 1px var(--pg-text) }
   .card .head { display: flex; align-items: center; margin-bottom: 10px }
-  .card h2 { font-size: 13px; font-weight: 600; color: #71717a }
-  .card .save { margin-left: auto; padding: 5px 14px; border: 1px solid #a1a1aa;
-                border-radius: 6px; background: transparent; font: inherit; font-size: 13px;
-                cursor: pointer }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--pg-muted) }
+  .card .save { margin-left: auto; padding: 5px 14px; border: 1px solid var(--pg-muted);
+                border-radius: 6px; background: transparent; color: var(--pg-text);
+                font: inherit; font-size: 13px; cursor: pointer }
 
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px }
   .panel { border-radius: 8px; padding: 16px; display: flex; align-items: center; gap: 18px }
   .panel.light { background: #fafafa; border: 1px solid #e4e4e7; color: #18181b }
-  .panel.dark  { background: #202023; color: #fafafa }
+  .panel.dark  { background: #202023; border: 1px solid #33333a; color: #fafafa }
   .favs { display: flex; flex-direction: column; align-items: center; gap: 10px }
   .favs .f32 svg { width: 32px; height: 32px }
   .favs .f16 svg { width: 16px; height: 16px }
@@ -66,21 +74,23 @@
   .hold { position: absolute; visibility: hidden; pointer-events: none }
 
   #status { position: fixed; bottom: 16px; right: 16px; background: #18181b; color: #fafafa;
-            padding: 10px 16px; border-radius: 8px; font-size: 13px; display: none }
+            border: 1px solid #52525b; padding: 10px 16px; border-radius: 8px; font-size: 13px;
+            display: none }
 </style>
 </head>
 <body>
 <header>
   <h1>mndicon</h1>
   <div id="swatches"></div>
-  <label>primary <input id="bg" type="color"></label>
-  <label>secondary <input id="fg" type="color"></label>
   <label><input id="title-toggle" type="checkbox"> title</label>
   <label for="seed">seed</label>
   <input id="seed" type="number" placeholder="random">
   <button id="regen">Regenerate</button>
+  <button id="theme-toggle" title="page theme">☀</button>
 </header>
 <div id="tuner">
+  <h3>colors</h3>
+  <div class="rows" id="color-rows"></div>
   <h3 id="comp-label">icons</h3>
   <div class="rows" id="comp-rows"></div>
   <h3>title</h3>
@@ -93,13 +103,15 @@
 let state = null                              // last /api payload
 let show_title = false                        // global: large icon vs icon + title logo
 let selected = 0                              // index of the selected candidate card
-let current = { scheme: 'grey', fg: '', bg: '' }  // colors applied to all candidates
 let typeset = 'geometric'                     // title font stack name
+// Colors as Nextra-style hue/saturation/lightness; primary = bg, secondary = fg
+let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l: 34 } }
 const comps = {}                              // cand index -> role -> tuner state
 const chosen = {}                             // cand index -> role -> icon name override
 const parts = []                              // title part -> { show, scale, dx, weight, color }
 
-const ROLE_ORDER = ['rect', 'solid', 'frame', 'fore']
+const ROLE_ORDER = ['rect', 'circle', 'solid', 'frame', 'fore']
+const PRIMITIVES = ['rect', 'circle']
 const WEIGHTS = [400, 500, 600, 700, 800]
 
 async function api(url, body) {
@@ -109,14 +121,33 @@ async function api(url, body) {
   return data
 }
 
-function hex(color) {
-  // Normalize any CSS color to #rrggbb (canvas fillStyle serializes to hex)
-  const ctx = hex.ctx || (hex.ctx = document.createElement('canvas').getContext('2d'))
-  ctx.fillStyle = color
-  return ctx.fillStyle
+// --- Color helpers ---
+
+function css_hsl(c) {
+  return `hsl(${c.h} ${c.s}% ${c.l}%)`
+}
+
+function parse_hsl(color) {
+  // Parse an hsl(...) string or hex color into { h, s, l }
+  const m = color.match(/hsl\((\d+)[ ,]+(\d+)%[ ,]+(\d+)%\)/)
+  if (m) return { h: +m[1], s: +m[2], l: +m[3] }
+  const n = parseInt(color.slice(1), 16)
+  const r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  const l = (max + min) / 2
+  if (!d) return { h: 0, s: 0, l: Math.round(l * 100) }
+  const s = d / (1 - Math.abs(2 * l - 1))
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return { h: Math.round(((h * 60) + 360) % 360), s: Math.round(s * 100), l: Math.round(l * 100) }
 }
 
 // --- Rendering ---
+
+function instance(svg, n) {
+  // Unique mask ids per injected copy: browsers resolve url(#id) document-wide
+  // and fail to apply masks across separate inline svg fragments
+  return svg.replace(/c(\d+)-cut(\d+)/g, `c$1-cut$2-i${n}`)
+}
 
 function render() {
   document.getElementById('seed').value = state.seed
@@ -138,16 +169,16 @@ function card(cand) {
       <button class="save">Save</button>
     </div>
     <div class="panels">
-      ${['light', 'dark'].map(mode => `
+      ${['light', 'dark'].map((mode, m) => `
         <div class="panel ${mode}">
           <div class="favs">
-            <span class="f32">${cand.svg_icon}</span>
-            <span class="f16">${cand.svg_icon}</span>
+            <span class="f32">${instance(cand.svg_icon, m * 3)}</span>
+            <span class="f16">${instance(cand.svg_icon, m * 3 + 1)}</span>
           </div>
-          <div class="main">${main}</div>
+          <div class="main">${instance(main, m * 3 + 2)}</div>
         </div>`).join('')}
     </div>
-    <div class="hold">${cand.svg_logo}</div>`
+    <div class="hold">${instance(cand.svg_logo, 6)}</div>`
   el.querySelector('.save').onclick = e => { e.stopPropagation(); save(cand, el) }
   el.onclick = () => select(cand.index)
   label_card(el, cand)
@@ -171,6 +202,64 @@ function select(index) {
   render_comp_rows()
 }
 
+// --- Color rows (global, Nextra-style H/S/L per slot) ---
+
+function render_color_rows() {
+  const box = document.getElementById('color-rows')
+  box.innerHTML = ''
+  for (const [label, slot] of [['primary', 'bg'], ['secondary', 'fg']]) {
+    const c = current[slot]
+    const row = document.createElement('div')
+    row.className = 'row'
+    row.innerHTML = `<b>${label}</b>
+      <label>hue <input type="range" data-k="h" min="0" max="360" value="${c.h}"></label>
+      <label>saturation <input type="range" data-k="s" min="0" max="100" value="${c.s}"></label>
+      <label>lightness <input type="range" data-k="l" min="0" max="100" value="${c.l}"></label>
+      <span class="chip"></span>`
+    row.querySelectorAll('input').forEach(input => {
+      input.oninput = () => {
+        current[slot][input.dataset.k] = +input.value
+        current.scheme = 'custom'
+        apply_colors()
+      }
+    })
+    box.appendChild(row)
+  }
+  apply_colors()
+}
+
+function apply_colors() {
+  const grid = document.getElementById('grid')
+  grid.style.setProperty('--fg', css_hsl(current.fg))
+  grid.style.setProperty('--bg', css_hsl(current.bg))
+  document.querySelectorAll('#color-rows .row').forEach((row, i) => {
+    const c = current[i === 0 ? 'bg' : 'fg']
+    row.querySelectorAll('input').forEach(input => { input.value = c[input.dataset.k] })
+    row.querySelector('.chip').style.background = css_hsl(c)
+  })
+  document.querySelectorAll('.swatch').forEach(s => {
+    s.classList.toggle('active', s.dataset.name === current.scheme)
+  })
+}
+
+function set_scheme(scheme) {
+  current = { scheme: scheme.name, fg: parse_hsl(scheme.fg), bg: parse_hsl(scheme.bg) }
+  apply_colors()
+}
+
+function render_swatches() {
+  const box = document.getElementById('swatches')
+  state.schemes.forEach(scheme => {
+    const btn = document.createElement('button')
+    btn.className = 'swatch'
+    btn.title = scheme.name
+    btn.dataset.name = scheme.name
+    btn.style.background = `linear-gradient(135deg, ${scheme.bg} 60%, ${scheme.fg} 60%)`
+    btn.onclick = () => set_scheme(scheme)
+    box.appendChild(btn)
+  })
+}
+
 // --- Component tuner (icon group follows the selected card) ---
 
 function comp_state(index, role) {
@@ -192,12 +281,12 @@ function render_comp_rows() {
     const row = document.createElement('div')
     row.className = 'row'
 
-    const icon_pick = role === 'rect' ? '' : `<label>icon <select data-k="icon">
+    const icon_pick = PRIMITIVES.includes(role) ? '' : `<label>icon <select data-k="icon">
       ${state.icon_roles[role].map(n => `<option ${n === ((chosen[selected] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
     </select></label>`
     const dims = role === 'rect'
-      ? `<label>width <input type="range" data-k="w" min="0.1" max="2" step="0.05" value="${c.w}"></label>
-         <label>height <input type="range" data-k="h" min="0.1" max="2" step="0.05" value="${c.h}"></label>
+      ? `<label>width <input type="range" data-k="w" min="0.1" max="1.25" step="0.05" value="${c.w}"></label>
+         <label>height <input type="range" data-k="h" min="0.1" max="1.25" step="0.05" value="${c.h}"></label>
          <label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>`
       : `<label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>`
 
@@ -277,10 +366,17 @@ function apply() {
 
       el.style.display = c.show ? '' : 'none'
       if (role === 'rect') {
-        const w = 96 * c.w, h = 96 * c.h
+        // Width is a fraction of the owning svg's full canvas, so the rect can
+        // span the icon alone (viewBox 96) or the whole icon + title logo
+        const vbw = el.ownerSVGElement.viewBox.baseVal.width
+        const w = vbw * c.w, h = 96 * c.h
         el.setAttribute('width', w); el.setAttribute('height', h)
-        el.setAttribute('x', (96 - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
+        el.setAttribute('x', (vbw - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
         el.setAttribute('rx', c.rx)
+      } else if (role === 'circle') {
+        el.setAttribute('cx', 48 + +el.dataset.dx + c.dx)
+        el.setAttribute('cy', 48 + c.dy)
+        el.setAttribute('r', 48 * +el.dataset.size * c.scale)
       } else {
         const size = +el.dataset.size * c.scale
         el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
@@ -303,37 +399,11 @@ function apply_title(text) {
   })
 }
 
-// --- Colors ---
-
-function render_swatches() {
-  const box = document.getElementById('swatches')
-  state.schemes.forEach(scheme => {
-    const btn = document.createElement('button')
-    btn.className = 'swatch'
-    btn.title = scheme.name
-    btn.dataset.name = scheme.name
-    btn.style.background = `linear-gradient(135deg, ${scheme.bg} 60%, ${scheme.fg} 60%)`
-    btn.onclick = () => set_colors(scheme.fg, scheme.bg, scheme.name)
-    box.appendChild(btn)
-  })
-}
-
-function set_colors(fg, bg, scheme = 'custom') {
-  current = { scheme, fg: hex(fg), bg: hex(bg) }
-  const grid = document.getElementById('grid')
-  grid.style.setProperty('--fg', current.fg)
-  grid.style.setProperty('--bg', current.bg)
-  document.getElementById('fg').value = current.fg
-  document.getElementById('bg').value = current.bg
-  document.querySelectorAll('.swatch').forEach(s => {
-    s.classList.toggle('active', s.dataset.name === scheme)
-  })
-}
-
 // --- Save ---
 
-function bake(svg, { fg, bg }) {
-  return svg.replace(/var\(--fg[^)]*\)/g, fg).replace(/var\(--bg[^)]*\)/g, bg)
+function bake(svg) {
+  return svg.replace(/var\(--fg[^)]*\)/g, css_hsl(current.fg))
+            .replace(/var\(--bg[^)]*\)/g, css_hsl(current.bg))
 }
 
 function serialize(el) {
@@ -367,12 +437,12 @@ function rasterize(svg, px) {
 
 async function save(cand, el) {
   try {
-    const svg_icon = bake(serialize(el.querySelector('.f32 svg')), current)
-    const svg_logo = bake(serialize(fit_logo(el.querySelector('.hold svg'))), current)
+    const svg_icon = bake(serialize(el.querySelector('.f32 svg')))
+    const svg_logo = bake(serialize(fit_logo(el.querySelector('.hold svg'))))
     const pngs = { 16: await rasterize(svg_icon, 16), 32: await rasterize(svg_icon, 32) }
     const out = await api('/api/save', {
       index: cand.index, scheme: current.scheme,
-      colors: { fg: current.fg, bg: current.bg },
+      colors: { fg: css_hsl(current.fg), bg: css_hsl(current.bg) },
       icons: { ...cand.icons, ...chosen[cand.index] }, svg_icon, svg_logo, pngs,
     })
     status(`Saved: ${out.saved.join(', ')}`)
@@ -381,7 +451,7 @@ async function save(cand, el) {
   }
 }
 
-// --- Regenerate / status ---
+// --- Regenerate / theme / status ---
 
 async function regenerate() {
   const raw = document.getElementById('seed').value.trim()
@@ -389,6 +459,7 @@ async function regenerate() {
   state = await api('/api/regenerate', seed === undefined ? {} : { seed })
   for (const k of Object.keys(chosen)) delete chosen[k]  // fresh icons on regenerate
   render()
+  apply_colors()
 }
 
 function status(text) {
@@ -401,15 +472,18 @@ function status(text) {
 
 document.getElementById('regen').onclick = () => regenerate().catch(err => status(err.message))
 document.getElementById('title-toggle').onchange = e => { show_title = e.target.checked; render() }
-document.getElementById('fg').oninput = e => set_colors(e.target.value, current.bg)
-document.getElementById('bg').oninput = e => set_colors(current.fg, e.target.value)
+document.getElementById('theme-toggle').onclick = () => {
+  const root = document.documentElement
+  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark'
+  document.getElementById('theme-toggle').textContent = root.dataset.theme === 'dark' ? '☀' : '☾'
+}
 
 api('/api/candidates').then(data => {
   state = data
   render_swatches()
-  const grey = state.schemes.find(s => s.name === 'grey')
-  set_colors(grey.fg, grey.bg, 'grey')
+  set_scheme(state.schemes.find(s => s.name === 'grey'))
   render()
+  render_color_rows()
 }).catch(err => status(err.message))
 </script>
 </body>

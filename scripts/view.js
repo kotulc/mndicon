@@ -78,7 +78,7 @@ function save_candidate(config, current, data) {
   const files = {
     'icon.svg': bake_colors(sent(data.svg_icon) || cand.svg_icon, colors),
     'logo.svg': bake_colors(sent(data.svg_logo) || cand.svg_logo, colors),
-    'brand.yaml': yaml.dump({
+    'logo.yaml': yaml.dump({
       title: config.title, seed: cand.seed, template: cand.template,
       icons: data.icons || cand.icons, scheme: data.scheme, colors,
     }),

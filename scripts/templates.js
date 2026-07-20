@@ -3,8 +3,8 @@
  * A template is an ordered list of layers drawn back-to-front on the 96x96
  * canvas; every template keeps a solid backing (icon or canvas rect) beneath
  * foreground ink so a single color set reads on light and dark pages alike:
- *   role  pool that fills the slot: 'frame' | 'solid' | 'fore',
- *         or 'rect' = fill the canvas with a rounded rect (no icon pick)
+ *   role  icon pool that fills the slot: 'frame' | 'solid' | 'fore', or a
+ *         primitive: 'rect' | 'circle' = fill the canvas (no icon pick)
  *   dx    absolute horizontal offset from center in canvas pixels; only the
  *         icons are randomized, never positions; layers stay vertically centered
  *   size  layer scale relative to the canvas (1 = full canvas)
@@ -12,26 +12,31 @@
  *   cut   true = subtract this layer from the layer below (SVG mask), no ink
  */
 
-const ROLES = ['frame', 'solid', 'fore', 'rect']
+const ROLES = ['frame', 'solid', 'fore', 'rect', 'circle']
+const PRIMITIVES = ['rect', 'circle']  // canvas shapes drawn directly, no icon pick
 
 
 const TEMPLATES = {
   overlay: [
     { role: 'solid', dx: 0,  size: 1.0,  ink: 'bg' },
-    { role: 'fore',  dx: 12, size: 0.75, ink: 'fg' },
+    { role: 'fore',  dx: 0,  size: 0.75, ink: 'fg' },
   ],
   cutout: [
     { role: 'solid', dx: 0,  size: 1.0,  ink: 'bg' },
-    { role: 'fore',  dx: 10, size: 0.75, cut: true },
+    { role: 'fore',  dx: -16,  size: 1.4,  cut: true },
   ],
   frame: [
     { role: 'rect',  dx: 0, size: 1.0,  ink: 'bg' },
     { role: 'frame', dx: 0, size: 0.95, ink: 'fg' },
     { role: 'fore',  dx: 0, size: 0.6,  ink: 'fg' },
   ],
-  solid: [
+  rectangle: [
     { role: 'rect',  dx: 0, size: 1.0,  ink: 'bg' },
-    { role: 'fore',  dx: 0, size: 0.6,  ink: 'fg' },
+    { role: 'fore',  dx: 0, size: 0.75,  ink: 'fg' },
+  ],
+  circle: [
+    { role: 'circle', dx: 0, size: 1.0, ink: 'bg' },
+    { role: 'fore',   dx: 0, size: 0.75, ink: 'fg' },
   ],
 }
 
@@ -61,4 +66,4 @@ function resolve_template(name) {
 }
 
 
-module.exports = { ROLES, TEMPLATES, resolve_template }
+module.exports = { PRIMITIVES, ROLES, TEMPLATES, resolve_template }
