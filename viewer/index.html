@@ -45,12 +45,14 @@
   .row b { width: 74px; font-weight: 600; color: var(--pg-text) }
   .row label { display: flex; align-items: center; gap: 5px; color: var(--pg-muted) }
   .row input[type=range] { width: 84px }
-  .row input[type=color] { width: 28px; height: 22px; padding: 0;
-                           border: 1px solid var(--pg-border); border-radius: 4px;
-                           background: none; cursor: pointer }
   .row select { font: inherit; padding: 2px 4px; max-width: 150px; background: var(--pg-card);
                 color: var(--pg-text); border: 1px solid var(--pg-border); border-radius: 4px }
   .chip { width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--pg-border) }
+  .ink-btn { width: 18px; height: 18px; padding: 0; border-radius: 4px; cursor: pointer;
+             border: 2px solid var(--pg-border) }
+  .ink-btn.active { border-color: var(--pg-text) }
+  .ink-btn[data-ink=bg] { background: var(--bg) }
+  .ink-btn[data-ink=fg] { background: var(--fg) }
 
   main { display: grid; gap: 20px; padding: 20px; max-width: 1100px; margin: 0 auto }
   .card { background: var(--pg-card); border: 1px solid var(--pg-border); border-radius: 12px;
@@ -103,12 +105,11 @@
 let state = null                              // last /api payload
 let show_title = false                        // global: large icon vs icon + title logo
 let selected = 0                              // index of the selected candidate card
-let typeset = 'geometric'                     // title font stack name
 // Colors as Nextra-style hue/saturation/lightness; primary = bg, secondary = fg
 let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l: 34 } }
-const comps = {}                              // cand index -> role -> tuner state
+const comps = {}                              // cand index -> role -> tuner state (incl. ink: 'fg'|'bg'|null)
 const chosen = {}                             // cand index -> role -> icon name override
-const parts = []                              // title part -> { show, scale, dx, weight, color }
+const parts = []                              // title part -> { show, ink, weight, scale, dx, typeset }
 
 const ROLE_ORDER = ['rect', 'circle', 'solid', 'frame', 'fore']
 const PRIMITIVES = ['rect', 'circle']
@@ -229,9 +230,9 @@ function render_color_rows() {
 }
 
 function apply_colors() {
-  const grid = document.getElementById('grid')
-  grid.style.setProperty('--fg', css_hsl(current.fg))
-  grid.style.setProperty('--bg', css_hsl(current.bg))
+  // Set on body (not just #grid) so tuner ink swatches, a #grid sibling, can read them too
+  document.body.style.setProperty('--fg', css_hsl(current.fg))
+  document.body.style.setProperty('--bg', css_hsl(current.bg))
   document.querySelectorAll('#color-rows .row').forEach((row, i) => {
     const c = current[i === 0 ? 'bg' : 'fg']
     row.querySelectorAll('input').forEach(input => { input.value = c[input.dataset.k] })
@@ -260,13 +261,43 @@ function render_swatches() {
   })
 }
 
+// --- Shared row controls (icon layers and title parts use the same layout) ---
+
+function ink_html() {
+  // Two swatches assigning this component to the primary (bg) or secondary (fg) color
+  return `<label>color
+    <button type="button" class="ink-btn" data-ink="bg" title="primary"></button>
+    <button type="button" class="ink-btn" data-ink="fg" title="secondary"></button>
+  </label>`
+}
+
+function wire_row(row, s, handlers = {}) {
+  // Standard inputs write straight into state s; string-valued selects (icon,
+  // typeset) and the ink swatches go through explicit handlers/state.ink instead
+  row.querySelectorAll('input, select').forEach(input => {
+    const k = input.dataset.k
+    if (k === 'icon' || k === 'typeset') { input.onchange = () => handlers[k](input.value); return }
+    input.oninput = () => {
+      s[k] = input.type === 'checkbox' ? input.checked : +input.value
+      apply()
+    }
+  })
+  row.querySelectorAll('.ink-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.ink === s.ink)
+    btn.onclick = () => {
+      s.ink = btn.dataset.ink
+      row.querySelectorAll('.ink-btn').forEach(b => b.classList.toggle('active', b.dataset.ink === s.ink))
+      apply()
+    }
+  })
+}
+
 // --- Component tuner (icon group follows the selected card) ---
 
-function comp_state(index, role) {
+function comp_state(index, role, init) {
   const c = comps[index] || (comps[index] = {})
-  return c[role] || (c[role] = role === 'rect'
-    ? { show: true, w: 1, h: 1, dx: 0, dy: 0, rx: 14 }
-    : { show: true, scale: 1, dx: 0, dy: 0 })
+  if (!c[role]) c[role] = { show: true, ink: 'bg', scale: 1, dx: 0, dy: 0, w: 1, h: 1, rx: 14, ...init }
+  return c[role]
 }
 
 function render_comp_rows() {
@@ -277,32 +308,31 @@ function render_comp_rows() {
   box.innerHTML = ''
 
   for (const role of ROLE_ORDER.filter(r => roles.includes(r))) {
-    const c = comp_state(selected, role)
+    // A cut (subtractive mask) layer has no fill of its own (raw #000 inside its
+    // <mask>) and gets no color control; painted layers carry fill="var(--fg/bg)"
+    const fill = el.querySelector(`[data-role="${role}"]`).getAttribute('fill') || ''
+    const paintable = fill.startsWith('var(')
+    const c = comp_state(selected, role, { ink: paintable ? (fill.includes('--fg') ? 'fg' : 'bg') : null })
     const row = document.createElement('div')
     row.className = 'row'
 
-    const icon_pick = PRIMITIVES.includes(role) ? '' : `<label>icon <select data-k="icon">
-      ${state.icon_roles[role].map(n => `<option ${n === ((chosen[selected] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
-    </select></label>`
     const dims = role === 'rect'
       ? `<label>width <input type="range" data-k="w" min="0.1" max="1.25" step="0.05" value="${c.w}"></label>
          <label>height <input type="range" data-k="h" min="0.1" max="1.25" step="0.05" value="${c.h}"></label>
          <label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>`
       : `<label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>`
+    const icon_pick = PRIMITIVES.includes(role) ? '' : `<label>icon <select data-k="icon">
+      ${state.icon_roles[role].map(n => `<option ${n === ((chosen[selected] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
+    </select></label>`
 
     row.innerHTML = `<b>${role}</b>
       <label><input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}> show</label>
-      ${icon_pick}${dims}
+      ${paintable ? ink_html() : ''}${dims}
       <label>x <input type="range" data-k="dx" min="-48" max="48" value="${c.dx}"></label>
-      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${c.dy}"></label>`
+      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${c.dy}"></label>
+      ${icon_pick}`
 
-    row.querySelectorAll('input, select').forEach(input => {
-      input.oninput = () => {
-        if (input.dataset.k === 'icon') return set_icon(selected, role, input.value)
-        c[input.dataset.k] = input.type === 'checkbox' ? input.checked : +input.value
-        apply()
-      }
-    })
+    wire_row(row, c, { icon: name => set_icon(selected, role, name) })
     box.appendChild(row)
   }
 }
@@ -323,33 +353,23 @@ function swap_icon(el, role, name) {
 function render_part_rows() {
   const pbox = document.getElementById('part-rows')
   pbox.innerHTML = ''
-  const trow = document.createElement('div')
-  trow.className = 'row'
-  trow.innerHTML = `<b>typeset</b><label><select>
-    ${Object.keys(state.typesets).map(t => `<option ${t === typeset ? 'selected' : ''}>${t}</option>`).join('')}
-  </select></label>`
-  trow.querySelector('select').onchange = e => { typeset = e.target.value; apply() }
-  pbox.appendChild(trow)
 
   state.title_parts.forEach((text, i) => {
-    const p = parts[i] || (parts[i] = { show: true, scale: 1, dx: 0, weight: 600, color: '' })
+    const p = parts[i] || (parts[i] = { show: true, ink: 'fg', weight: 600, scale: 1, dx: 0, typeset: 'geometric' })
     const row = document.createElement('div')
     row.className = 'row'
     row.innerHTML = `<b>“${text}”</b>
       <label><input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}> show</label>
-      <label>color <input type="color" data-k="color" value="${p.color || '#888888'}"></label>
+      ${ink_html()}
       <label>weight <select data-k="weight">
         ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
       </select></label>
       <label>size <input type="range" data-k="scale" min="0.4" max="1.6" step="0.05" value="${p.scale}"></label>
-      <label>x <input type="range" data-k="dx" min="-40" max="40" value="${p.dx}"></label>`
-    row.querySelectorAll('input, select').forEach(input => {
-      input.oninput = () => {
-        const k = input.dataset.k
-        p[k] = input.type === 'checkbox' ? input.checked : (k === 'color' ? input.value : +input.value)
-        apply()
-      }
-    })
+      <label>x <input type="range" data-k="dx" min="-40" max="40" value="${p.dx}"></label>
+      <label>typeset <select data-k="typeset">
+        ${Object.keys(state.typesets).map(t => `<option ${t === p.typeset ? 'selected' : ''}>${t}</option>`).join('')}
+      </select></label>`
+    wire_row(row, p, { typeset: t => { p.typeset = t; apply() } })
     pbox.appendChild(row)
   })
 }
@@ -365,6 +385,7 @@ function apply() {
       if (!c) continue
 
       el.style.display = c.show ? '' : 'none'
+      if (c.ink) el.setAttribute('fill', c.ink === 'fg' ? 'var(--fg, #fafafa)' : 'var(--bg, #52525b)')
       if (role === 'rect') {
         // Width is a fraction of the owning svg's full canvas, so the rect can
         // span the icon alone (viewBox 96) or the whole icon + title logo
@@ -387,15 +408,17 @@ function apply() {
 }
 
 function apply_title(text) {
-  text.setAttribute('font-family', state.typesets[typeset])
+  // Per-part styling, including typeset and color: unlike icon layers, title
+  // parts always have an assigned ink (no page-inherited default) once tuned
   text.querySelectorAll('tspan').forEach((span, i) => {
     const p = parts[i]
     if (!p) return
     span.style.display = p.show ? '' : 'none'
+    span.setAttribute('font-family', state.typesets[p.typeset])
     span.setAttribute('font-weight', p.weight)
     span.setAttribute('font-size', 42 * p.scale)
     span.setAttribute('dx', p.dx)
-    if (p.color) span.setAttribute('fill', p.color)
+    span.setAttribute('fill', p.ink === 'fg' ? 'var(--fg, #fafafa)' : 'var(--bg, #52525b)')
   })
 }
 
