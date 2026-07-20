@@ -12,19 +12,50 @@ Sample color themes are randomly selected from standard complementary color sets
 
 The user only needs to supply the site title, logo compositions and color schemes are randomly selected and optionally presented to the user. 
 
+
+## Usage
+Install dependencies, then either open the selection viewer or generate headlessly:
+
+```sh
+npm install
+npm run view                                # viewer at http://localhost:8646 (uses mndicon.yaml)
+node scripts/cli.js view --title "My Site"  # or configure entirely by flags
+node scripts/cli.js generate --seed 7       # headless: greyscale svgs + candidates.yaml
+```
+
+Configuration lives in `mndicon.yaml` (only `title` is required); flags `--title --n --seed
+--out --port --config` override it. The title may be a plain string (`My Site`) or a list of
+individually styleable parts (`["M", "n", "D", "Icon"]`, rendered adjacently). Each candidate
+shows its favicon previews beside the large icon on both light and dark panels, greyscale
+first. One global control set applies to every candidate: preset complementary pairs,
+primary/secondary color pickers, a `title` toggle to preview the icon + title logo, seeded
+Regenerate, and a `components` tuner adjusting the size, position, and visibility of each
+component (background rect incl. corner roundness, icons, characters) plus per-part title
+color/weight/size and a typeset dropdown. Save serializes the tuned SVGs and writes
+`icon.svg`, `logo.svg`, `favicon-16/32.png` and a `brand.yaml` provenance record. Favicons
+are rasterized in the browser, so saved output matches the preview.
+
+Composition templates are plain data in `scripts/templates.js`: each template is an ordered
+list of layers on the 96x96 canvas with `role` (icon pool, or `rect` = canvas fill), `dx`
+(absolute horizontal offset from center in pixels), `size`, `ink` (`fg`/`bg` color slot) and
+optional `cut` (subtract from the layer below) — edit or add entries there to change
+compositions.
+
 There are several templates used for icon compositions:
 - Overlay: Background icons are offset and overlaid with contrasting colors
 - Cutout: The foreground icon is subtracted from the solid background icon
 - Frame: The foreground icon is framed by the enlarged background icon (think badge)
-- Character: A character or set of characters (based on title word length) and selected icon are combined and offset
+- Character: A character or set of characters (based on the number of words in the title) and selected icon are combined and offset
 
-Offsets are standardized on a 1/3 grid (from center)
+Only the icons are randomized — every layer position is absolute as defined in its template
+(a horizontal pixel offset from center). Every template keeps a solid backing (icon or canvas
+rect) beneath foreground ink so one color set reads on light and dark pages alike.
 
 ## Registered icon sets
 Icons are pulled from https://icons.getbootstrap.com/icons/
 
 Background - These are icons appropriate to serve as background  and come in frame or solid variations
-- Frame: "app", "shield", "chat-square", "squre", "file", "hexagon", "octagon", "triangle"
+- Frame: "app", "shield", "chat-square", "square", "file", "hexagon", "octagon", "triangle"
 - Solid: "square-fill", "shield-fill", "chat-fill", "file-fill", "hexagon-fill", "octagon-fill", "triangle-fill"
 
 Foreground - These are icons appropriate to sit ontop of a background icon and are typically more detailed: Examples include "caret-down/left/right/up-fill", "arrow-left/right/up/down", "activity", "box", "boxes", "braces", "chevron-bar-expand", "chevron-expand", "crop", "diamond-half"

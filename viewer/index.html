@@ -1,0 +1,354 @@
+<!doctype html>
+<!-- mndicon viewer: global controls (color presets, primary/secondary pickers,
+     title toggle, seed) plus a component tuner adjusting size, position, and
+     visibility of icons, the background rect (incl. corner roundness), and the
+     individually styleable title parts (color, weight, typeset) across every
+     candidate at once; edits happen directly in the inline SVG DOM and the
+     tuned SVGs are serialized on save (favicons rasterized here via canvas). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mndicon</title>
+<style>
+  :root { color-scheme: light; font-family: Avenir, Montserrat, Corbel, 'Segoe UI', sans-serif }
+  * { box-sizing: border-box; margin: 0 }
+  body { background: #f4f4f5; color: #18181b }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 20px;
+           background: #18181b; color: #fafafa }
+  header h1 { font-size: 18px; font-weight: 700; margin-right: auto }
+  header label { display: flex; align-items: center; gap: 6px; font-size: 13px }
+  header input[type=color] { width: 34px; height: 26px; padding: 0; border: 1px solid #52525b;
+                             border-radius: 6px; background: none; cursor: pointer }
+  header input[type=number] { width: 110px; padding: 6px 8px; border: 1px solid #52525b;
+                              border-radius: 6px; background: #27272a; color: #fafafa; font: inherit }
+  header button { padding: 6px 14px; border: 0; border-radius: 6px; background: #fafafa;
+                  color: #18181b; font: inherit; font-weight: 600; cursor: pointer }
+  #swatches { display: flex; gap: 6px }
+  .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent;
+            cursor: pointer; padding: 0 }
+  .swatch.active { border-color: #fafafa }
+
+  #tuner { max-width: 1100px; margin: 12px auto 0; padding: 0 20px; font-size: 13px }
+  #tuner summary { cursor: pointer; font-weight: 600; color: #52525b }
+  #tuner .rows { background: #fff; border: 1px solid #e4e4e7; border-radius: 10px;
+                 padding: 10px 14px; margin-top: 8px }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 5px 0 }
+  .row + .row { border-top: 1px solid #f4f4f5 }
+  .row b { width: 72px; font-weight: 600; color: #3f3f46 }
+  .row label { display: flex; align-items: center; gap: 5px; color: #71717a }
+  .row input[type=range] { width: 90px }
+  .row input[type=color] { width: 28px; height: 22px; padding: 0; border: 1px solid #d4d4d8;
+                           border-radius: 4px; background: none; cursor: pointer }
+  .row select { font: inherit; padding: 2px 4px }
+
+  main { display: grid; gap: 20px; padding: 20px; max-width: 1100px; margin: 0 auto }
+  .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 16px }
+  .card .head { display: flex; align-items: center; margin-bottom: 10px }
+  .card h2 { font-size: 13px; font-weight: 600; color: #71717a }
+  .card .save { margin-left: auto; padding: 5px 14px; border: 1px solid #a1a1aa;
+                border-radius: 6px; background: transparent; font: inherit; font-size: 13px;
+                cursor: pointer }
+
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px }
+  .panel { border-radius: 8px; padding: 16px; display: flex; align-items: center; gap: 18px }
+  .panel.light { background: #fafafa; border: 1px solid #e4e4e7; color: #18181b }
+  .panel.dark  { background: #202023; color: #fafafa }
+  .favs { display: flex; flex-direction: column; align-items: center; gap: 10px }
+  .favs .f32 svg { width: 32px; height: 32px }
+  .favs .f16 svg { width: 16px; height: 16px }
+  .main { flex: 1; display: flex; justify-content: center; min-width: 0 }
+  .main svg { height: 96px; max-width: 100% }
+  .hold { position: absolute; visibility: hidden; pointer-events: none }
+
+  #status { position: fixed; bottom: 16px; right: 16px; background: #18181b; color: #fafafa;
+            padding: 10px 16px; border-radius: 8px; font-size: 13px; display: none }
+</style>
+</head>
+<body>
+<header>
+  <h1>mndicon</h1>
+  <div id="swatches"></div>
+  <label>primary <input id="bg" type="color"></label>
+  <label>secondary <input id="fg" type="color"></label>
+  <label><input id="title-toggle" type="checkbox"> title</label>
+  <label for="seed">seed</label>
+  <input id="seed" type="number" placeholder="random">
+  <button id="regen">Regenerate</button>
+</header>
+<details id="tuner">
+  <summary>components</summary>
+  <div class="rows" id="comp-rows"></div>
+  <div class="rows" id="part-rows"></div>
+</details>
+<main id="grid"></main>
+<div id="status"></div>
+
+<script>
+let state = null                              // last /api payload
+let show_title = false                        // global: large icon vs icon + title logo
+let current = { scheme: 'grey', fg: '', bg: '' }  // colors applied to all candidates
+let typeset = 'geometric'                     // title font stack name
+const comps = {}                              // role -> { show, scale, dx, dy, rx }
+const parts = []                              // title part -> { show, scale, dx, weight, color }
+
+const ROLE_ORDER = ['rect', 'solid', 'frame', 'fore', 'char']
+const WEIGHTS = [400, 500, 600, 700, 800]
+
+async function api(url, body) {
+  const res = await fetch(url, body ? { method: 'POST', body: JSON.stringify(body) } : {})
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || res.statusText)
+  return data
+}
+
+function hex(color) {
+  // Normalize any CSS color to #rrggbb (canvas fillStyle serializes to hex)
+  const ctx = hex.ctx || (hex.ctx = document.createElement('canvas').getContext('2d'))
+  ctx.fillStyle = color
+  return ctx.fillStyle
+}
+
+// --- Rendering ---
+
+function render() {
+  document.getElementById('seed').value = state.seed
+  const grid = document.getElementById('grid')
+  grid.innerHTML = ''
+  state.candidates.forEach(cand => grid.appendChild(card(cand)))
+  render_tuner()
+  apply()
+}
+
+function card(cand) {
+  const el = document.createElement('div')
+  el.className = 'card'
+  const main = show_title ? cand.svg_logo : cand.svg_icon
+  el.innerHTML = `<div class="head">
+      <h2>#${cand.index + 1} · ${cand.template} · ${Object.values(cand.icons).join(' + ')}</h2>
+      <button class="save">Save</button>
+    </div>
+    <div class="panels">
+      ${['light', 'dark'].map(mode => `
+        <div class="panel ${mode}">
+          <div class="favs">
+            <span class="f32">${cand.svg_icon}</span>
+            <span class="f16">${cand.svg_icon}</span>
+          </div>
+          <div class="main">${main}</div>
+        </div>`).join('')}
+    </div>
+    <div class="hold">${cand.svg_logo}</div>`
+  el.querySelector('.save').onclick = () => save(cand, el)
+  return el
+}
+
+// --- Component tuner ---
+
+function render_tuner() {
+  const roles = [...new Set([...document.querySelectorAll('#grid [data-role]')].map(e => e.dataset.role))]
+  const box = document.getElementById('comp-rows')
+  box.innerHTML = ''
+
+  for (const role of ROLE_ORDER.filter(r => roles.includes(r))) {
+    const c = comps[role] || (comps[role] = { show: true, scale: 1, dx: 0, dy: 0, rx: 14 })
+    const row = document.createElement('div')
+    row.className = 'row'
+    row.innerHTML = `<b>${role}</b>
+      <label><input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}> show</label>
+      <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
+      <label>x <input type="range" data-k="dx" min="-48" max="48" value="${c.dx}"></label>
+      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${c.dy}"></label>
+      ${role === 'rect' ? `<label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>` : ''}`
+    row.querySelectorAll('input').forEach(input => {
+      input.oninput = () => {
+        c[input.dataset.k] = input.type === 'checkbox' ? input.checked : +input.value
+        apply()
+      }
+    })
+    box.appendChild(row)
+  }
+
+  const pbox = document.getElementById('part-rows')
+  pbox.innerHTML = ''
+  const trow = document.createElement('div')
+  trow.className = 'row'
+  trow.innerHTML = `<b>title</b><label>typeset <select>
+    ${Object.keys(state.typesets).map(t => `<option ${t === typeset ? 'selected' : ''}>${t}</option>`).join('')}
+  </select></label>`
+  trow.querySelector('select').onchange = e => { typeset = e.target.value; apply() }
+  pbox.appendChild(trow)
+
+  state.title_parts.forEach((text, i) => {
+    const p = parts[i] || (parts[i] = { show: true, scale: 1, dx: 0, weight: 600, color: '' })
+    const row = document.createElement('div')
+    row.className = 'row'
+    row.innerHTML = `<b>“${text}”</b>
+      <label><input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}> show</label>
+      <label>color <input type="color" data-k="color" value="${p.color || '#888888'}"></label>
+      <label>weight <select data-k="weight">
+        ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
+      </select></label>
+      <label>size <input type="range" data-k="scale" min="0.4" max="1.6" step="0.05" value="${p.scale}"></label>
+      <label>x <input type="range" data-k="dx" min="-40" max="40" value="${p.dx}"></label>`
+    row.querySelectorAll('input, select').forEach(input => {
+      input.oninput = () => {
+        const k = input.dataset.k
+        p[k] = input.type === 'checkbox' ? input.checked : (k === 'color' ? input.value : +input.value)
+        apply()
+      }
+    })
+    pbox.appendChild(row)
+  })
+}
+
+function apply() {
+  // Push the tuner state onto every composed SVG component in the document
+  for (const el of document.querySelectorAll('#grid [data-role]')) {
+    const role = el.dataset.role
+    if (role === 'title') { apply_title(el); continue }
+    const c = comps[role]
+    if (!c) continue
+
+    el.style.display = c.show ? '' : 'none'
+    if (role === 'rect') {
+      const w = 96 * c.scale
+      el.setAttribute('width', w); el.setAttribute('height', w)
+      el.setAttribute('x', (96 - w) / 2 + c.dx); el.setAttribute('y', (96 - w) / 2 + c.dy)
+      el.setAttribute('rx', c.rx)
+    } else if (role === 'char') {
+      const text = el.querySelector('text')
+      text.setAttribute('font-size', +el.dataset.fs * c.scale)
+      text.setAttribute('x', 48 + +el.dataset.dx + c.dx)
+      text.setAttribute('y', 48 + c.dy)
+    } else {
+      const size = +el.dataset.size * c.scale
+      el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
+                                   `${48 + c.dy - size * 48}) scale(${size * 6})`)
+    }
+  }
+}
+
+function apply_title(text) {
+  text.setAttribute('font-family', state.typesets[typeset])
+  text.querySelectorAll('tspan').forEach((span, i) => {
+    const p = parts[i]
+    if (!p) return
+    span.style.display = p.show ? '' : 'none'
+    span.setAttribute('font-weight', p.weight)
+    span.setAttribute('font-size', 42 * p.scale)
+    span.setAttribute('dx', p.dx)
+    if (p.color) span.setAttribute('fill', p.color)
+  })
+}
+
+// --- Colors ---
+
+function render_swatches() {
+  const box = document.getElementById('swatches')
+  state.schemes.forEach(scheme => {
+    const btn = document.createElement('button')
+    btn.className = 'swatch'
+    btn.title = scheme.name
+    btn.dataset.name = scheme.name
+    btn.style.background = `linear-gradient(135deg, ${scheme.bg} 60%, ${scheme.fg} 60%)`
+    btn.onclick = () => set_colors(scheme.fg, scheme.bg, scheme.name)
+    box.appendChild(btn)
+  })
+}
+
+function set_colors(fg, bg, scheme = 'custom') {
+  current = { scheme, fg: hex(fg), bg: hex(bg) }
+  const grid = document.getElementById('grid')
+  grid.style.setProperty('--fg', current.fg)
+  grid.style.setProperty('--bg', current.bg)
+  document.getElementById('fg').value = current.fg
+  document.getElementById('bg').value = current.bg
+  document.querySelectorAll('.swatch').forEach(s => {
+    s.classList.toggle('active', s.dataset.name === scheme)
+  })
+}
+
+// --- Save ---
+
+function bake(svg, { fg, bg }) {
+  return svg.replace(/var\(--fg[^)]*\)/g, fg).replace(/var\(--bg[^)]*\)/g, bg)
+}
+
+function serialize(el) {
+  return new XMLSerializer().serializeToString(el)
+}
+
+function fit_logo(el) {
+  // Clone the tuned logo with its viewBox fitted to the actual content width
+  const clone = el.cloneNode(true)
+  const box = el.getBBox()
+  clone.setAttribute('viewBox', `0 0 ${Math.ceil(box.x + box.width + 8)} 96`)
+  return clone
+}
+
+function rasterize(svg, px) {
+  // Draw the baked SVG onto a canvas at px size and return a PNG data URL
+  return new Promise((resolve, reject) => {
+    const sized = svg.replace('<svg ', `<svg width="${px}" height="${px}" `)
+    const url = URL.createObjectURL(new Blob([sized], { type: 'image/svg+xml' }))
+    const img = new Image()
+    img.onload = () => {
+      const canvas = Object.assign(document.createElement('canvas'), { width: px, height: px })
+      canvas.getContext('2d').drawImage(img, 0, 0, px, px)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = () => reject(new Error('svg rasterization failed'))
+    img.src = url
+  })
+}
+
+async function save(cand, el) {
+  try {
+    const svg_icon = bake(serialize(el.querySelector('.f32 svg')), current)
+    const svg_logo = bake(serialize(fit_logo(el.querySelector('.hold svg'))), current)
+    const pngs = { 16: await rasterize(svg_icon, 16), 32: await rasterize(svg_icon, 32) }
+    const out = await api('/api/save', {
+      index: cand.index, scheme: current.scheme,
+      colors: { fg: current.fg, bg: current.bg }, svg_icon, svg_logo, pngs,
+    })
+    status(`Saved: ${out.saved.join(', ')}`)
+  } catch (err) {
+    status(`Save failed: ${err.message}`)
+  }
+}
+
+// --- Regenerate / status ---
+
+async function regenerate() {
+  const raw = document.getElementById('seed').value.trim()
+  const seed = raw && Number.isInteger(+raw) && +raw !== state.seed ? +raw : undefined
+  state = await api('/api/regenerate', seed === undefined ? {} : { seed })
+  render()
+}
+
+function status(text) {
+  const el = document.getElementById('status')
+  el.textContent = text
+  el.style.display = 'block'
+  clearTimeout(status.timer)
+  status.timer = setTimeout(() => { el.style.display = 'none' }, 4000)
+}
+
+document.getElementById('regen').onclick = () => regenerate().catch(err => status(err.message))
+document.getElementById('title-toggle').onchange = e => { show_title = e.target.checked; render() }
+document.getElementById('fg').oninput = e => set_colors(e.target.value, current.bg)
+document.getElementById('bg').oninput = e => set_colors(current.fg, e.target.value)
+
+api('/api/candidates').then(data => {
+  state = data
+  render_swatches()
+  const grey = state.schemes.find(s => s.name === 'grey')
+  set_colors(grey.fg, grey.bg, 'grey')
+  render()
+}).catch(err => status(err.message))
+</script>
+</body>
+</html>
