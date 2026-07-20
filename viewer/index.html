@@ -1,9 +1,12 @@
 <!doctype html>
 <!-- mndicon viewer: dark/light page theme (dark default), Nextra-style H/S/L
-     color sliders for primary (bg) and secondary (fg), preset swatches, and an
-     always-visible tuner. The icon group follows the selected candidate card:
-     per-layer icon dropdowns, size/position/visibility, rect width relative to
-     each svg's full canvas (so it can span icon + title), and circle support.
+     color sliders for primary (bg) and secondary (fg), preset swatches.
+     One square card per composition template: light/dark favicon+icon panels
+     on the left, that template's own layer controls (always visible, icon
+     dropdown last) on the right. Clicking a template card selects it, which
+     feeds its live-tuned ("flattened") icon into a trailing logo card — the
+     final icon + title, with optional rect/circle background shapes and the
+     title's per-part controls, all listed below its light/dark canvas.
      Mask ids are made unique per injected svg copy so cutouts render in every
      instance. Tuned SVGs are serialized on save (favicons rasterized here). -->
 <html lang="en" data-theme="dark">
@@ -38,8 +41,8 @@
   #tuner { max-width: 1100px; margin: 12px auto 0; padding: 0 20px; font-size: 13px }
   #tuner h3 { font-size: 12px; font-weight: 600; color: var(--pg-muted); margin: 10px 0 4px;
               text-transform: uppercase; letter-spacing: 0.04em }
-  #tuner .rows { background: var(--pg-card); border: 1px solid var(--pg-border);
-                 border-radius: 10px; padding: 6px 14px }
+  .rows { background: var(--pg-card); border: 1px solid var(--pg-border);
+          border-radius: 10px; padding: 6px 14px; font-size: 13px }
   .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 6px 0 }
   .row + .row { border-top: 1px solid var(--pg-border) }
   .row b { width: 74px; font-weight: 600; color: var(--pg-text) }
@@ -58,22 +61,30 @@
   .card { background: var(--pg-card); border: 1px solid var(--pg-border); border-radius: 12px;
           padding: 16px; cursor: pointer }
   .card.selected { border-color: var(--pg-text); box-shadow: 0 0 0 1px var(--pg-text) }
-  .card .head { display: flex; align-items: center; margin-bottom: 10px }
-  .card h2 { font-size: 13px; font-weight: 600; color: var(--pg-muted) }
+  .card.logo { cursor: default }
+  .card .head { display: flex; align-items: center; margin-bottom: 10px; font-size: 13px;
+                font-weight: 600; color: var(--pg-muted) }
   .card .save { margin-left: auto; padding: 5px 14px; border: 1px solid var(--pg-muted);
                 border-radius: 6px; background: transparent; color: var(--pg-text);
                 font: inherit; font-size: 13px; cursor: pointer }
 
-  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px }
-  .panel { border-radius: 8px; padding: 16px; display: flex; align-items: center; gap: 18px }
+  .body { display: flex; gap: 16px }
+  .canvas { display: flex; flex-direction: row; gap: 10px; flex-shrink: 0 }
+  .controls { flex: 1; min-width: 0 }
+  .controls .rows { padding: 2px 14px }
+
+  .panel { border-radius: 8px; padding: 14px; display: flex; align-items: center; gap: 14px }
   .panel.light { background: #fafafa; border: 1px solid #e4e4e7; color: #18181b }
   .panel.dark  { background: #202023; border: 1px solid #33333a; color: #fafafa }
-  .favs { display: flex; flex-direction: column; align-items: center; gap: 10px }
+  .canvas .panel { flex-direction: column; width: 170px }
+  .favs { display: flex; align-items: center; gap: 8px }
+  .canvas .favs { flex-direction: row }
   .favs .f32 svg { width: 32px; height: 32px }
   .favs .f16 svg { width: 16px; height: 16px }
   .main { flex: 1; display: flex; justify-content: center; min-width: 0 }
   .main svg { height: 96px; max-width: 100% }
-  .hold { position: absolute; visibility: hidden; pointer-events: none }
+
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px }
 
   #status { position: fixed; bottom: 16px; right: 16px; background: #18181b; color: #fafafa;
             border: 1px solid #52525b; padding: 10px 16px; border-radius: 8px; font-size: 13px;
@@ -84,7 +95,6 @@
 <header>
   <h1>mndicon</h1>
   <div id="swatches"></div>
-  <label><input id="title-toggle" type="checkbox"> title</label>
   <label for="seed">seed</label>
   <input id="seed" type="number" placeholder="random">
   <button id="regen">Regenerate</button>
@@ -93,26 +103,27 @@
 <div id="tuner">
   <h3>colors</h3>
   <div class="rows" id="color-rows"></div>
-  <h3 id="comp-label">icons</h3>
-  <div class="rows" id="comp-rows"></div>
-  <h3>title</h3>
-  <div class="rows" id="part-rows"></div>
 </div>
 <main id="grid"></main>
 <div id="status"></div>
 
 <script>
 let state = null                              // last /api payload
-let show_title = false                        // global: large icon vs icon + title logo
-let selected = 0                              // index of the selected candidate card
+let selected = 0                              // index of the selected template card (feeds the logo card's icon)
 // Colors as Nextra-style hue/saturation/lightness; primary = bg, secondary = fg
 let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l: 34 } }
 const comps = {}                              // cand index -> role -> tuner state (incl. ink: 'fg'|'bg'|null)
 const chosen = {}                             // cand index -> role -> icon name override
 const parts = []                              // title part -> { show, ink, weight, scale, dx, typeset }
+// Logo-card-only components: the flattened selected icon plus optional bg shapes
+const logo = {
+  flat:   { show: true, scale: 1, dx: 0, dy: 0 },
+  rect:   { show: false, ink: 'bg', w: 1, h: 1, rx: 14, dx: 0, dy: 0 },
+  circle: { show: false, ink: 'bg', scale: 1, dx: 0, dy: 0 },
+}
+let title_markup = null                       // cached <text data-role="title">...</text>, same for every candidate
 
-const ROLE_ORDER = ['rect', 'circle', 'solid', 'frame', 'fore']
-const PRIMITIVES = ['rect', 'circle']
+const ROLE_ORDER = ['solid', 'frame', 'fore']
 const WEIGHTS = [400, 500, 600, 700, 800]
 
 async function api(url, body) {
@@ -126,6 +137,10 @@ async function api(url, body) {
 
 function css_hsl(c) {
   return `hsl(${c.h} ${c.s}% ${c.l}%)`
+}
+
+function ink_css(slot) {
+  return slot === 'fg' ? 'var(--fg, #fafafa)' : 'var(--bg, #52525b)'
 }
 
 function parse_hsl(color) {
@@ -155,52 +170,42 @@ function render() {
   const grid = document.getElementById('grid')
   grid.innerHTML = ''
   state.candidates.forEach(cand => grid.appendChild(card(cand)))
+  grid.appendChild(logo_card())
   select(Math.min(selected, state.candidates.length - 1))
-  render_part_rows()
-  apply()
 }
 
 function card(cand) {
   const el = document.createElement('div')
   el.className = 'card'
   el.dataset.index = cand.index
-  const main = show_title ? cand.svg_logo : cand.svg_icon
-  el.innerHTML = `<div class="head">
-      <h2>#${cand.index + 1} · ${cand.template} · <span class="names"></span></h2>
-      <button class="save">Save</button>
-    </div>
-    <div class="panels">
-      ${['light', 'dark'].map((mode, m) => `
-        <div class="panel ${mode}">
-          <div class="favs">
-            <span class="f32">${instance(cand.svg_icon, m * 3)}</span>
-            <span class="f16">${instance(cand.svg_icon, m * 3 + 1)}</span>
-          </div>
-          <div class="main">${instance(main, m * 3 + 2)}</div>
-        </div>`).join('')}
-    </div>
-    <div class="hold">${instance(cand.svg_logo, 6)}</div>`
-  el.querySelector('.save').onclick = e => { e.stopPropagation(); save(cand, el) }
+  el.innerHTML = `<div class="head">#${cand.index + 1} · ${cand.template}</div>
+    <div class="body">
+      <div class="canvas">
+        ${['light', 'dark'].map((mode, m) => `
+          <div class="panel ${mode}">
+            <div class="favs">
+              <span class="f32">${instance(cand.svg_icon, m * 3)}</span>
+              <span class="f16">${instance(cand.svg_icon, m * 3 + 1)}</span>
+            </div>
+            <div class="main">${instance(cand.svg_icon, m * 3 + 2)}</div>
+          </div>`).join('')}
+      </div>
+      <div class="controls"><div class="rows"></div></div>
+    </div>`
   el.onclick = () => select(cand.index)
-  label_card(el, cand)
+  render_comp_rows(cand.index, el.querySelector('.rows'))
 
   // Re-apply any icon overrides chosen before this re-render
   for (const [role, name] of Object.entries(chosen[cand.index] || {})) swap_icon(el, role, name)
   return el
 }
 
-function label_card(el, cand) {
-  el.querySelector('.names').textContent =
-    Object.entries({ ...cand.icons, ...chosen[cand.index] }).map(([, n]) => n).join(' + ')
-}
-
 function select(index) {
   selected = index
-  document.querySelectorAll('.card').forEach(el => {
+  document.querySelectorAll('.card[data-index]').forEach(el => {
     el.classList.toggle('selected', +el.dataset.index === index)
   })
-  document.getElementById('comp-label').textContent = `icons — #${index + 1} ${state.candidates[index].template}`
-  render_comp_rows()
+  apply()
 }
 
 // --- Color rows (global, Nextra-style H/S/L per slot) ---
@@ -261,7 +266,7 @@ function render_swatches() {
   })
 }
 
-// --- Shared row controls (icon layers and title parts use the same layout) ---
+// --- Shared row controls (icon layers, logo components, and title parts all use this) ---
 
 function ink_html() {
   // Two swatches assigning this component to the primary (bg) or secondary (fg) color
@@ -292,56 +297,45 @@ function wire_row(row, s, handlers = {}) {
   })
 }
 
-// --- Component tuner (icon group follows the selected card) ---
+// --- Per-template icon layer controls (always visible, follow their own card) ---
 
 function comp_state(index, role, init) {
   const c = comps[index] || (comps[index] = {})
-  if (!c[role]) c[role] = { show: true, ink: 'bg', scale: 1, dx: 0, dy: 0, w: 1, h: 1, rx: 14, ...init }
+  if (!c[role]) c[role] = { show: true, ink: 'bg', scale: 1, dx: 0, dy: 0, ...init }
   return c[role]
 }
 
-function render_comp_rows() {
-  const cand = state.candidates[selected]
-  const el = document.querySelector(`.card[data-index="${selected}"]`)
-  const roles = [...new Set([...el.querySelectorAll('[data-role]')].map(n => n.dataset.role))]
-  const box = document.getElementById('comp-rows')
-  box.innerHTML = ''
+function render_comp_rows(index, container) {
+  const cand = state.candidates[index]
+  const card_el = container.closest('.card')
+  const roles = [...new Set([...card_el.querySelectorAll('[data-role]')].map(n => n.dataset.role))]
+  container.innerHTML = ''
 
   for (const role of ROLE_ORDER.filter(r => roles.includes(r))) {
     // A cut (subtractive mask) layer has no fill of its own (raw #000 inside its
     // <mask>) and gets no color control; painted layers carry fill="var(--fg/bg)"
-    const fill = el.querySelector(`[data-role="${role}"]`).getAttribute('fill') || ''
+    const fill = card_el.querySelector(`[data-role="${role}"]`).getAttribute('fill') || ''
     const paintable = fill.startsWith('var(')
-    const c = comp_state(selected, role, { ink: paintable ? (fill.includes('--fg') ? 'fg' : 'bg') : null })
+    const c = comp_state(index, role, { ink: paintable ? (fill.includes('--fg') ? 'fg' : 'bg') : null })
     const row = document.createElement('div')
     row.className = 'row'
-
-    const dims = role === 'rect'
-      ? `<label>width <input type="range" data-k="w" min="0.1" max="1.25" step="0.05" value="${c.w}"></label>
-         <label>height <input type="range" data-k="h" min="0.1" max="1.25" step="0.05" value="${c.h}"></label>
-         <label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>`
-      : `<label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>`
-    const icon_pick = PRIMITIVES.includes(role) ? '' : `<label>icon <select data-k="icon">
-      ${state.icon_roles[role].map(n => `<option ${n === ((chosen[selected] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
-    </select></label>`
-
     row.innerHTML = `<b>${role}</b>
       <label><input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}> show</label>
-      ${paintable ? ink_html() : ''}${dims}
+      ${paintable ? ink_html() : ''}
+      <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
       <label>x <input type="range" data-k="dx" min="-48" max="48" value="${c.dx}"></label>
       <label>y <input type="range" data-k="dy" min="-48" max="48" value="${c.dy}"></label>
-      ${icon_pick}`
-
-    wire_row(row, c, { icon: name => set_icon(selected, role, name) })
-    box.appendChild(row)
+      <label>icon <select data-k="icon">
+        ${state.icon_roles[role].map(n => `<option ${n === ((chosen[index] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
+      </select></label>`
+    wire_row(row, c, { icon: name => set_icon(index, role, name) })
+    container.appendChild(row)
   }
 }
 
 function set_icon(index, role, name) {
   (chosen[index] || (chosen[index] = {}))[role] = name
-  const el = document.querySelector(`.card[data-index="${index}"]`)
-  swap_icon(el, role, name)
-  label_card(el, state.candidates[index])
+  swap_icon(document.querySelector(`.card[data-index="${index}"]`), role, name)
   apply()
 }
 
@@ -350,17 +344,15 @@ function swap_icon(el, role, name) {
   el.querySelectorAll(`g[data-role="${role}"]`).forEach(g => { g.innerHTML = state.icon_bodies[name] })
 }
 
-function render_part_rows() {
-  const pbox = document.getElementById('part-rows')
-  pbox.innerHTML = ''
+// --- Title part controls ---
 
+function render_part_rows(container) {
   state.title_parts.forEach((text, i) => {
-    const p = parts[i] || (parts[i] = { show: true, ink: 'fg', weight: 600, scale: 1, dx: 0, typeset: 'geometric' })
+    const p = parts[i] || (parts[i] = { show: true, weight: 600, scale: 1, dx: 0, typeset: 'geometric' })
     const row = document.createElement('div')
     row.className = 'row'
     row.innerHTML = `<b>“${text}”</b>
       <label><input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}> show</label>
-      ${ink_html()}
       <label>weight <select data-k="weight">
         ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
       </select></label>
@@ -370,46 +362,146 @@ function render_part_rows() {
         ${Object.keys(state.typesets).map(t => `<option ${t === p.typeset ? 'selected' : ''}>${t}</option>`).join('')}
       </select></label>`
     wire_row(row, p, { typeset: t => { p.typeset = t; apply() } })
-    pbox.appendChild(row)
+    container.appendChild(row)
   })
 }
 
+// --- Logo card: flattened selected icon + optional bg shapes + title, all controls below ---
+
+function logo_card() {
+  const el = document.createElement('div')
+  el.className = 'card logo'
+  el.id = 'logo-card'
+  el.innerHTML = `<div class="head">logo <button class="save">Save</button></div>
+    <div class="panels">
+      <div class="panel light"><div class="main"></div></div>
+      <div class="panel dark"><div class="main"></div></div>
+    </div>
+    <div class="rows"></div>`
+  el.querySelector('.save').onclick = save_logo
+
+  const rows = el.querySelector('.rows')
+  const flat_row = document.createElement('div')
+  flat_row.className = 'row'
+  flat_row.innerHTML = `<b>icon</b>
+    <label><input type="checkbox" data-k="show" ${logo.flat.show ? 'checked' : ''}> show</label>
+    <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.flat.scale}"></label>
+    <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.flat.dx}"></label>
+    <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.flat.dy}"></label>`
+  wire_row(flat_row, logo.flat)
+  rows.appendChild(flat_row)
+
+  const circle_row = document.createElement('div')
+  circle_row.className = 'row'
+  circle_row.innerHTML = `<b>circle</b>
+    <label><input type="checkbox" data-k="show" ${logo.circle.show ? 'checked' : ''}> show</label>
+    ${ink_html()}
+    <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.circle.scale}"></label>
+    <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.circle.dx}"></label>
+    <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.circle.dy}"></label>`
+  wire_row(circle_row, logo.circle)
+  rows.appendChild(circle_row)
+
+  const rect_row = document.createElement('div')
+  rect_row.className = 'row'
+  rect_row.innerHTML = `<b>rect</b>
+    <label><input type="checkbox" data-k="show" ${logo.rect.show ? 'checked' : ''}> show</label>
+    ${ink_html()}
+    <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${logo.rect.w}"></label>
+    <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${logo.rect.h}"></label>
+    <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.rect.dx}"></label>
+    <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.rect.dy}"></label>
+    <label>round <input type="range" data-k="rx" min="0" max="48" value="${logo.rect.rx}"></label>`
+  wire_row(rect_row, logo.rect)
+  rows.appendChild(rect_row)
+
+  render_part_rows(rows)
+  return el
+}
+
+function extract_title() {
+  // Cache the title markup: identical across every candidate's svg_logo, and
+  // static for the whole session (title doesn't change on regenerate)
+  if (!title_markup) {
+    const doc = new DOMParser().parseFromString(state.candidates[0].svg_logo, 'image/svg+xml')
+    title_markup = doc.querySelector('[data-role="title"]').outerHTML
+  }
+  return title_markup
+}
+
+function rebuild_logo_dom() {
+  const logo_card_el = document.getElementById('logo-card')
+  const src = document.querySelector(`.card[data-index="${selected}"] .panel.light .main svg`)
+  if (!logo_card_el || !src) return
+
+  const flat   = `<svg data-role="flat" x="0" y="0" width="96" height="96" viewBox="0 0 96 96">${src.innerHTML}</svg>`
+  const circle = `<circle data-role="circle" cx="48" cy="48" r="48" fill="var(--bg, #52525b)"/>`
+  const rect   = `<rect data-role="rect" x="0" y="0" width="96" height="96" rx="14" fill="var(--bg, #52525b)"/>`
+  const width  = Math.ceil(96 + 20 + state.title_parts.join(state.sep).length * 42 * 0.75 + 8)
+  const svg    = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} 96">` +
+                 `${rect}${circle}${flat}${extract_title()}</svg>`
+
+  logo_card_el.querySelector('.panel.light .main').innerHTML = instance(svg, 100)
+  logo_card_el.querySelector('.panel.dark .main').innerHTML = instance(svg, 101)
+}
+
+// --- Apply tuner state to every card's live SVG DOM ---
+
 function apply() {
-  // Push each candidate's tuner state onto its SVG components; title is global
-  for (const card of document.querySelectorAll('.card')) {
+  // Phase 1: finalize every template card's own layer transforms first, so the
+  // logo card (phase 2) flattens an already-up-to-date source, never a stale
+  // one-cycle-behind copy of the selected card
+  for (const card of document.querySelectorAll('.card[data-index]')) {
     const index = +card.dataset.index
     for (const el of card.querySelectorAll('[data-role]')) {
-      const role = el.dataset.role
-      if (role === 'title') { apply_title(el); continue }
-      const c = (comps[index] || {})[role]
+      const c = (comps[index] || {})[el.dataset.role]
       if (!c) continue
-
       el.style.display = c.show ? '' : 'none'
-      if (c.ink) el.setAttribute('fill', c.ink === 'fg' ? 'var(--fg, #fafafa)' : 'var(--bg, #52525b)')
-      if (role === 'rect') {
-        // Width is a fraction of the owning svg's full canvas, so the rect can
-        // span the icon alone (viewBox 96) or the whole icon + title logo
-        const vbw = el.ownerSVGElement.viewBox.baseVal.width
-        const w = vbw * c.w, h = 96 * c.h
-        el.setAttribute('width', w); el.setAttribute('height', h)
-        el.setAttribute('x', (vbw - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
-        el.setAttribute('rx', c.rx)
-      } else if (role === 'circle') {
-        el.setAttribute('cx', 48 + +el.dataset.dx + c.dx)
-        el.setAttribute('cy', 48 + c.dy)
-        el.setAttribute('r', 48 * +el.dataset.size * c.scale)
-      } else {
-        const size = +el.dataset.size * c.scale
-        el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
-                                     `${48 + c.dy - size * 48}) scale(${size * 6})`)
-      }
+      if (c.ink) el.setAttribute('fill', ink_css(c.ink))
+      const size = +el.dataset.size * c.scale
+      el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
+                                   `${48 + c.dy - size * 48}) scale(${size * 6})`)
+    }
+  }
+
+  // Phase 2: rebuild the logo card from the now-current selection, then tune
+  // its own components. The rebuilt flat/rect/circle nest fresh each time, so
+  // any embedded solid/frame/fore nodes from the flattened icon have no entry
+  // in `logo` and are correctly skipped (they're frozen, not re-tuned here).
+  rebuild_logo_dom()
+  for (const el of document.getElementById('logo-card').querySelectorAll('[data-role]')) {
+    const role = el.dataset.role
+    if (role === 'title') { apply_title(el); continue }
+    const c = logo[role]
+    if (!c) continue
+
+    el.style.display = c.show ? '' : 'none'
+    if (c.ink) el.setAttribute('fill', ink_css(c.ink))
+
+    if (role === 'rect') {
+      const w = 96 * c.w, h = 96 * c.h
+      el.setAttribute('width', w); el.setAttribute('height', h)
+      el.setAttribute('x', (96 - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
+      el.setAttribute('rx', c.rx)
+    } else if (role === 'circle') {
+      el.setAttribute('cx', 48 + c.dx)
+      el.setAttribute('cy', 48 + c.dy)
+      el.setAttribute('r', 48 * c.scale)
+    } else if (role === 'flat') {
+      const w = 96 * c.scale
+      el.setAttribute('width', w); el.setAttribute('height', w)
+      el.setAttribute('x', 48 + c.dx - w / 2); el.setAttribute('y', 48 + c.dy - w / 2)
     }
   }
 }
 
 function apply_title(text) {
-  // Per-part styling, including typeset and color: unlike icon layers, title
-  // parts always have an assigned ink (no page-inherited default) once tuned
+  // Per-part styling. Color is deliberately NOT assigned from primary/secondary
+  // here: title text sits directly on the page (not a painted icon backing), so
+  // it keeps inheriting currentColor from its <text> parent — that panel-native
+  // color is guaranteed to contrast (dark text on the light panel, light text on
+  // the dark one), whereas the secondary/fg color can be near-white and vanish
+  // against the light panel's own near-white background.
   text.querySelectorAll('tspan').forEach((span, i) => {
     const p = parts[i]
     if (!p) return
@@ -418,7 +510,6 @@ function apply_title(text) {
     span.setAttribute('font-weight', p.weight)
     span.setAttribute('font-size', 42 * p.scale)
     span.setAttribute('dx', p.dx)
-    span.setAttribute('fill', p.ink === 'fg' ? 'var(--fg, #fafafa)' : 'var(--bg, #52525b)')
   })
 }
 
@@ -458,15 +549,18 @@ function rasterize(svg, px) {
   })
 }
 
-async function save(cand, el) {
+async function save_logo() {
   try {
-    const svg_icon = bake(serialize(el.querySelector('.f32 svg')))
-    const svg_logo = bake(serialize(fit_logo(el.querySelector('.hold svg'))))
+    const cand = state.candidates[selected]
+    const icon_src = document.querySelector(`.card[data-index="${selected}"] .panel.light .main svg`)
+    const svg_icon = bake(serialize(icon_src))
+    const logo_svg_el = document.querySelector('#logo-card .panel.light .main svg')
+    const svg_logo = bake(serialize(fit_logo(logo_svg_el)))
     const pngs = { 16: await rasterize(svg_icon, 16), 32: await rasterize(svg_icon, 32) }
     const out = await api('/api/save', {
-      index: cand.index, scheme: current.scheme,
+      index: selected, scheme: current.scheme,
       colors: { fg: css_hsl(current.fg), bg: css_hsl(current.bg) },
-      icons: { ...cand.icons, ...chosen[cand.index] }, svg_icon, svg_logo, pngs,
+      icons: { ...cand.icons, ...chosen[selected] }, svg_icon, svg_logo, pngs,
     })
     status(`Saved: ${out.saved.join(', ')}`)
   } catch (err) {
@@ -494,7 +588,6 @@ function status(text) {
 }
 
 document.getElementById('regen').onclick = () => regenerate().catch(err => status(err.message))
-document.getElementById('title-toggle').onchange = e => { show_title = e.target.checked; render() }
 document.getElementById('theme-toggle').onclick = () => {
   const root = document.documentElement
   root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark'

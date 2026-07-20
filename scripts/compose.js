@@ -45,16 +45,7 @@ function place(size, dx) {
 
 
 function paint_layer(layer) {
-  /** Render one resolved layer: canvas primitive (rect/circle) or icon markup. */
-  if (layer.role === 'rect') {
-    return `<rect data-role="rect" x="0" y="0" width="${CANVAS}" height="${CANVAS}" rx="14" ` +
-           `fill="${ink(layer.ink)}"/>`
-  }
-  if (layer.role === 'circle') {
-    return `<circle data-role="circle" data-size="${layer.size}" data-dx="${layer.dx}" ` +
-           `cx="${CANVAS / 2 + layer.dx}" cy="${CANVAS / 2}" r="${round(layer.size * CANVAS / 2)}" ` +
-           `fill="${ink(layer.ink)}"/>`
-  }
+  /** Render one resolved layer: icon markup scaled/offset onto the canvas. */
   return `<g data-role="${layer.role}" data-size="${layer.size}" data-dx="${layer.dx}" ` +
          `fill="${ink(layer.ink)}" transform="${place(layer.size, layer.dx)}">${layer.body}</g>`
 }

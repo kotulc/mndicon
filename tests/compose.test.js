@@ -8,8 +8,6 @@ const { CANVAS, compose_icon, compose_logo, place } = require('../scripts/compos
 const SOLID = { role: 'solid', dx: 0, size: 1.0, ink: 'bg', body: '<path d="M0 0h16v16H0z"/>' }
 const FORE  = { role: 'fore', dx: 22, size: 0.5, ink: 'fg', body: '<path d="M8 0 16 16H0z"/>' }
 const CUT   = { role: 'fore', dx: 0, size: 0.5, cut: true, body: '<path d="M8 0 16 16H0z"/>' }
-const RECT   = { role: 'rect', dx: 0, size: 1.0, ink: 'bg' }
-const CIRCLE = { role: 'circle', dx: 0, size: 1.0, ink: 'bg' }
 
 
 describe('place', () => {
@@ -55,18 +53,6 @@ describe('compose_icon', () => {
   test('test_icon_cut_first_throws', () => {
     /** A cut layer with nothing below it is a template error. */
     expect(() => compose_icon([CUT])).toThrow(/'cut' layer needs a layer below/)
-  })
-
-  test('test_icon_rect_canvas_fill', () => {
-    /** Rect layers fill the canvas with a rounded rect in their ink slot. */
-    const svg = compose_icon([RECT, FORE])
-    expect(svg).toMatch(/<rect data-role="rect" x="0" y="0" width="96" height="96" rx="14" fill="var\(--bg[^)]*\)"\/>/)
-  })
-
-  test('test_icon_circle_canvas_fill', () => {
-    /** Circle layers fill the canvas with a centered circle in their ink slot. */
-    const svg = compose_icon([CIRCLE, FORE])
-    expect(svg).toMatch(/<circle data-role="circle" data-size="1" data-dx="0" cx="48" cy="48" r="48" fill="var\(--bg[^)]*\)"\/>/)
   })
 
   test('test_icon_data_attributes', () => {

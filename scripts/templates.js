@@ -1,10 +1,11 @@
 /**
  * Declarative composition templates for mndicon.
  * A template is an ordered list of layers drawn back-to-front on the 96x96
- * canvas; every template keeps a solid backing (icon or canvas rect) beneath
- * foreground ink so a single color set reads on light and dark pages alike:
- *   role  icon pool that fills the slot: 'frame' | 'solid' | 'fore', or a
- *         primitive: 'rect' | 'circle' = fill the canvas (no icon pick)
+ * canvas; every template keeps a solid icon backing beneath foreground ink so
+ * a single color set reads on light and dark pages alike. Background shapes
+ * (rect/circle) are not part of templates — they are logo-level decorations
+ * the viewer optionally places behind the flattened icon and title.
+ *   role  icon pool that fills the slot: 'frame' | 'solid' | 'fore'
  *   dx    absolute horizontal offset from center in canvas pixels; only the
  *         icons are randomized, never positions; layers stay vertically centered
  *   size  layer scale relative to the canvas (1 = full canvas)
@@ -12,24 +13,23 @@
  *   cut   true = subtract this layer from the layer below (SVG mask), no ink
  */
 
-const ROLES = ['frame', 'solid', 'fore', 'rect', 'circle']
-const PRIMITIVES = ['rect', 'circle']  // canvas shapes drawn directly, no icon pick
+const ROLES = ['frame', 'solid', 'fore']
 
 
 const TEMPLATES = {
   overlay: [
-    { role: 'solid', dx: 0,  size: 1.0,  ink: 'bg' },
-    { role: 'fore',  dx: 0,  size: 0.8, ink: 'fg' },
+    { role: 'solid', dx: 0, size: 1.0, ink: 'bg' },
+    { role: 'fore',  dx: 0, size: 0.8, ink: 'fg' },
   ],
   cutout: [
     { role: 'solid', dx: 0, size: 1.0,  ink: 'bg' },
     { role: 'fore',  dx: 0, size: 0.75, cut: true },
   ],
   frame: [
-    { role: 'rect',  dx: 0, size: 1.0,  ink: 'bg' },
+    { role: 'solid', dx: 0, size: 1.0, ink: 'bg' },
     { role: 'frame', dx: 0, size: 0.9, ink: 'fg' },
-    { role: 'fore',  dx: 0, size: 0.8,  ink: 'fg' },
-  ]
+    { role: 'fore',  dx: 0, size: 0.8, ink: 'fg' },
+  ],
 }
 
 
@@ -58,4 +58,4 @@ function resolve_template(name) {
 }
 
 
-module.exports = { PRIMITIVES, ROLES, TEMPLATES, resolve_template }
+module.exports = { ROLES, TEMPLATES, resolve_template }
