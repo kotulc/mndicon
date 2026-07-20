@@ -69,10 +69,18 @@ function render_layers(layers, uid) {
     if (layer.cut) {
       if (!parts.length) throw new Error(`compose: 'cut' layer needs a layer below it`)
       const id = `${uid}cut${i}`
-      defs.push(`<mask id="${id}"><rect width="${CANVAS}" height="${CANVAS}" fill="#fff"/>` +
+      // maskUnits must be pinned to the canvas explicitly: the default (objectBoundingBox,
+      // region -10%..110% of the *referencing* layer's own pre-transform path bbox) crops
+      // the mask to an icon-dependent, usually off-center window instead of the full canvas
+      defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="${CANVAS}" height="${CANVAS}">` +
+                `<rect width="${CANVAS}" height="${CANVAS}" fill="#fff"/>` +
                 `<g data-role="${layer.role}" data-size="${layer.size}" data-dx="${layer.dx}" ` +
                 `fill="#000" transform="${place(layer.size, layer.dx)}">${layer.body}</g></mask>`)
-      parts[parts.length - 1] = parts[parts.length - 1].replace(/^<(g|rect|circle) /, `<$1 mask="url(#${id})" `)
+      // The mask attribute must sit on an untransformed wrapper, not the layer's own
+      // <g transform="..."> directly: mask content shares the referencing element's
+      // user space, which otherwise compounds with that element's own transform and
+      // throws the cutout icon's placement far off (e.g. into a corner)
+      parts[parts.length - 1] = `<g mask="url(#${id})">${parts[parts.length - 1]}</g>`
     } else {
       parts.push(paint_layer(layer))
     }

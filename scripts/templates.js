@@ -19,25 +19,17 @@ const PRIMITIVES = ['rect', 'circle']  // canvas shapes drawn directly, no icon 
 const TEMPLATES = {
   overlay: [
     { role: 'solid', dx: 0,  size: 1.0,  ink: 'bg' },
-    { role: 'fore',  dx: 0,  size: 0.75, ink: 'fg' },
+    { role: 'fore',  dx: 0,  size: 0.8, ink: 'fg' },
   ],
   cutout: [
-    { role: 'solid', dx: 0,  size: 1.0,  ink: 'bg' },
-    { role: 'fore',  dx: -16,  size: 1.4,  cut: true },
+    { role: 'solid', dx: 0, size: 1.0,  ink: 'bg' },
+    { role: 'fore',  dx: 0, size: 0.75, cut: true },
   ],
   frame: [
     { role: 'rect',  dx: 0, size: 1.0,  ink: 'bg' },
-    { role: 'frame', dx: 0, size: 0.95, ink: 'fg' },
-    { role: 'fore',  dx: 0, size: 0.6,  ink: 'fg' },
-  ],
-  rectangle: [
-    { role: 'rect',  dx: 0, size: 1.0,  ink: 'bg' },
-    { role: 'fore',  dx: 0, size: 0.75,  ink: 'fg' },
-  ],
-  circle: [
-    { role: 'circle', dx: 0, size: 1.0, ink: 'bg' },
-    { role: 'fore',   dx: 0, size: 0.75, ink: 'fg' },
-  ],
+    { role: 'frame', dx: 0, size: 0.9, ink: 'fg' },
+    { role: 'fore',  dx: 0, size: 0.8,  ink: 'fg' },
+  ]
 }
 
 

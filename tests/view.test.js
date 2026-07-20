@@ -56,7 +56,7 @@ describe('view server', () => {
     const { status, data } = await request('GET', '/api/candidates')
     expect(status).toBe(200)
     expect(data.seed).toBe(7)
-    expect(data.candidates.map(c => c.template)).toEqual(['overlay', 'cutout', 'frame', 'solid', 'circle'])
+    expect(data.candidates.map(c => c.template)).toEqual(['overlay', 'cutout', 'frame'])
     expect(data.schemes[0]).toMatchObject({ name: 'grey' })
     expect(data.schemes[1].fg).toMatch(/^hsl\(/)
     expect(data.title_parts).toEqual(['My', 'Site'])
