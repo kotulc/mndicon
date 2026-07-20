@@ -1,6 +1,5 @@
 # mndicon configuration -- all fields except title are optional
-title: ['M', 'N', 'D', 'icon']
-n_candidates: 3
+title: ['MND', 'icon']
 # seed: 1          # integer; omit for a random seed (shown in the viewer)
 output: ./brand
 port: 8646

@@ -1,10 +1,10 @@
 <!doctype html>
-<!-- mndicon viewer: global controls (color presets, primary/secondary pickers,
-     title toggle, seed) plus a component tuner adjusting size, position, and
-     visibility of icons, the background rect (incl. corner roundness), and the
-     individually styleable title parts (color, weight, typeset) across every
-     candidate at once; edits happen directly in the inline SVG DOM and the
-     tuned SVGs are serialized on save (favicons rasterized here via canvas). -->
+<!-- mndicon viewer: global color/title controls plus an always-visible tuner.
+     The icon editor group follows the selected candidate card (outlined, first
+     by default): per-layer icon dropdowns, size/position/visibility, and rect
+     width/height/roundness. Title part rows are global. Edits happen directly
+     in the inline SVG DOM and the tuned SVGs are serialized on save (favicons
+     rasterized here via canvas). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -31,20 +31,23 @@
   .swatch.active { border-color: #fafafa }
 
   #tuner { max-width: 1100px; margin: 12px auto 0; padding: 0 20px; font-size: 13px }
-  #tuner summary { cursor: pointer; font-weight: 600; color: #52525b }
+  #tuner h3 { font-size: 12px; font-weight: 600; color: #52525b; margin: 10px 0 4px;
+              text-transform: uppercase; letter-spacing: 0.04em }
   #tuner .rows { background: #fff; border: 1px solid #e4e4e7; border-radius: 10px;
-                 padding: 10px 14px; margin-top: 8px }
-  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 5px 0 }
+                 padding: 6px 14px }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 6px 0 }
   .row + .row { border-top: 1px solid #f4f4f5 }
-  .row b { width: 72px; font-weight: 600; color: #3f3f46 }
+  .row b { width: 60px; font-weight: 600; color: #3f3f46 }
   .row label { display: flex; align-items: center; gap: 5px; color: #71717a }
-  .row input[type=range] { width: 90px }
+  .row input[type=range] { width: 84px }
   .row input[type=color] { width: 28px; height: 22px; padding: 0; border: 1px solid #d4d4d8;
                            border-radius: 4px; background: none; cursor: pointer }
-  .row select { font: inherit; padding: 2px 4px }
+  .row select { font: inherit; padding: 2px 4px; max-width: 150px }
 
   main { display: grid; gap: 20px; padding: 20px; max-width: 1100px; margin: 0 auto }
-  .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 16px }
+  .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 16px;
+          cursor: pointer }
+  .card.selected { border-color: #18181b; box-shadow: 0 0 0 1px #18181b }
   .card .head { display: flex; align-items: center; margin-bottom: 10px }
   .card h2 { font-size: 13px; font-weight: 600; color: #71717a }
   .card .save { margin-left: auto; padding: 5px 14px; border: 1px solid #a1a1aa;
@@ -77,23 +80,26 @@
   <input id="seed" type="number" placeholder="random">
   <button id="regen">Regenerate</button>
 </header>
-<details id="tuner">
-  <summary>components</summary>
+<div id="tuner">
+  <h3 id="comp-label">icons</h3>
   <div class="rows" id="comp-rows"></div>
+  <h3>title</h3>
   <div class="rows" id="part-rows"></div>
-</details>
+</div>
 <main id="grid"></main>
 <div id="status"></div>
 
 <script>
 let state = null                              // last /api payload
 let show_title = false                        // global: large icon vs icon + title logo
+let selected = 0                              // index of the selected candidate card
 let current = { scheme: 'grey', fg: '', bg: '' }  // colors applied to all candidates
 let typeset = 'geometric'                     // title font stack name
-const comps = {}                              // role -> { show, scale, dx, dy, rx }
+const comps = {}                              // cand index -> role -> tuner state
+const chosen = {}                             // cand index -> role -> icon name override
 const parts = []                              // title part -> { show, scale, dx, weight, color }
 
-const ROLE_ORDER = ['rect', 'solid', 'frame', 'fore', 'char']
+const ROLE_ORDER = ['rect', 'solid', 'frame', 'fore']
 const WEIGHTS = [400, 500, 600, 700, 800]
 
 async function api(url, body) {
@@ -117,16 +123,18 @@ function render() {
   const grid = document.getElementById('grid')
   grid.innerHTML = ''
   state.candidates.forEach(cand => grid.appendChild(card(cand)))
-  render_tuner()
+  select(Math.min(selected, state.candidates.length - 1))
+  render_part_rows()
   apply()
 }
 
 function card(cand) {
   const el = document.createElement('div')
   el.className = 'card'
+  el.dataset.index = cand.index
   const main = show_title ? cand.svg_logo : cand.svg_icon
   el.innerHTML = `<div class="head">
-      <h2>#${cand.index + 1} · ${cand.template} · ${Object.values(cand.icons).join(' + ')}</h2>
+      <h2>#${cand.index + 1} · ${cand.template} · <span class="names"></span></h2>
       <button class="save">Save</button>
     </div>
     <div class="panels">
@@ -140,41 +148,95 @@ function card(cand) {
         </div>`).join('')}
     </div>
     <div class="hold">${cand.svg_logo}</div>`
-  el.querySelector('.save').onclick = () => save(cand, el)
+  el.querySelector('.save').onclick = e => { e.stopPropagation(); save(cand, el) }
+  el.onclick = () => select(cand.index)
+  label_card(el, cand)
+
+  // Re-apply any icon overrides chosen before this re-render
+  for (const [role, name] of Object.entries(chosen[cand.index] || {})) swap_icon(el, role, name)
   return el
 }
 
-// --- Component tuner ---
+function label_card(el, cand) {
+  el.querySelector('.names').textContent =
+    Object.entries({ ...cand.icons, ...chosen[cand.index] }).map(([, n]) => n).join(' + ')
+}
 
-function render_tuner() {
-  const roles = [...new Set([...document.querySelectorAll('#grid [data-role]')].map(e => e.dataset.role))]
+function select(index) {
+  selected = index
+  document.querySelectorAll('.card').forEach(el => {
+    el.classList.toggle('selected', +el.dataset.index === index)
+  })
+  document.getElementById('comp-label').textContent = `icons — #${index + 1} ${state.candidates[index].template}`
+  render_comp_rows()
+}
+
+// --- Component tuner (icon group follows the selected card) ---
+
+function comp_state(index, role) {
+  const c = comps[index] || (comps[index] = {})
+  return c[role] || (c[role] = role === 'rect'
+    ? { show: true, w: 1, h: 1, dx: 0, dy: 0, rx: 14 }
+    : { show: true, scale: 1, dx: 0, dy: 0 })
+}
+
+function render_comp_rows() {
+  const cand = state.candidates[selected]
+  const el = document.querySelector(`.card[data-index="${selected}"]`)
+  const roles = [...new Set([...el.querySelectorAll('[data-role]')].map(n => n.dataset.role))]
   const box = document.getElementById('comp-rows')
   box.innerHTML = ''
 
   for (const role of ROLE_ORDER.filter(r => roles.includes(r))) {
-    const c = comps[role] || (comps[role] = { show: true, scale: 1, dx: 0, dy: 0, rx: 14 })
+    const c = comp_state(selected, role)
     const row = document.createElement('div')
     row.className = 'row'
+
+    const icon_pick = role === 'rect' ? '' : `<label>icon <select data-k="icon">
+      ${state.icon_roles[role].map(n => `<option ${n === ((chosen[selected] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
+    </select></label>`
+    const dims = role === 'rect'
+      ? `<label>width <input type="range" data-k="w" min="0.1" max="2" step="0.05" value="${c.w}"></label>
+         <label>height <input type="range" data-k="h" min="0.1" max="2" step="0.05" value="${c.h}"></label>
+         <label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>`
+      : `<label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>`
+
     row.innerHTML = `<b>${role}</b>
       <label><input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}> show</label>
-      <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
+      ${icon_pick}${dims}
       <label>x <input type="range" data-k="dx" min="-48" max="48" value="${c.dx}"></label>
-      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${c.dy}"></label>
-      ${role === 'rect' ? `<label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>` : ''}`
-    row.querySelectorAll('input').forEach(input => {
+      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${c.dy}"></label>`
+
+    row.querySelectorAll('input, select').forEach(input => {
       input.oninput = () => {
+        if (input.dataset.k === 'icon') return set_icon(selected, role, input.value)
         c[input.dataset.k] = input.type === 'checkbox' ? input.checked : +input.value
         apply()
       }
     })
     box.appendChild(row)
   }
+}
 
+function set_icon(index, role, name) {
+  (chosen[index] || (chosen[index] = {}))[role] = name
+  const el = document.querySelector(`.card[data-index="${index}"]`)
+  swap_icon(el, role, name)
+  label_card(el, state.candidates[index])
+  apply()
+}
+
+function swap_icon(el, role, name) {
+  // Swap the icon markup in every copy of the layer (incl. inside cutout masks)
+  el.querySelectorAll(`g[data-role="${role}"]`).forEach(g => { g.innerHTML = state.icon_bodies[name] })
+}
+
+function render_part_rows() {
   const pbox = document.getElementById('part-rows')
   pbox.innerHTML = ''
   const trow = document.createElement('div')
   trow.className = 'row'
-  trow.innerHTML = `<b>title</b><label>typeset <select>
+  trow.innerHTML = `<b>typeset</b><label><select>
     ${Object.keys(state.typesets).map(t => `<option ${t === typeset ? 'selected' : ''}>${t}</option>`).join('')}
   </select></label>`
   trow.querySelector('select').onchange = e => { typeset = e.target.value; apply() }
@@ -204,28 +266,26 @@ function render_tuner() {
 }
 
 function apply() {
-  // Push the tuner state onto every composed SVG component in the document
-  for (const el of document.querySelectorAll('#grid [data-role]')) {
-    const role = el.dataset.role
-    if (role === 'title') { apply_title(el); continue }
-    const c = comps[role]
-    if (!c) continue
+  // Push each candidate's tuner state onto its SVG components; title is global
+  for (const card of document.querySelectorAll('.card')) {
+    const index = +card.dataset.index
+    for (const el of card.querySelectorAll('[data-role]')) {
+      const role = el.dataset.role
+      if (role === 'title') { apply_title(el); continue }
+      const c = (comps[index] || {})[role]
+      if (!c) continue
 
-    el.style.display = c.show ? '' : 'none'
-    if (role === 'rect') {
-      const w = 96 * c.scale
-      el.setAttribute('width', w); el.setAttribute('height', w)
-      el.setAttribute('x', (96 - w) / 2 + c.dx); el.setAttribute('y', (96 - w) / 2 + c.dy)
-      el.setAttribute('rx', c.rx)
-    } else if (role === 'char') {
-      const text = el.querySelector('text')
-      text.setAttribute('font-size', +el.dataset.fs * c.scale)
-      text.setAttribute('x', 48 + +el.dataset.dx + c.dx)
-      text.setAttribute('y', 48 + c.dy)
-    } else {
-      const size = +el.dataset.size * c.scale
-      el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
-                                   `${48 + c.dy - size * 48}) scale(${size * 6})`)
+      el.style.display = c.show ? '' : 'none'
+      if (role === 'rect') {
+        const w = 96 * c.w, h = 96 * c.h
+        el.setAttribute('width', w); el.setAttribute('height', h)
+        el.setAttribute('x', (96 - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
+        el.setAttribute('rx', c.rx)
+      } else {
+        const size = +el.dataset.size * c.scale
+        el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
+                                     `${48 + c.dy - size * 48}) scale(${size * 6})`)
+      }
     }
   }
 }
@@ -312,7 +372,8 @@ async function save(cand, el) {
     const pngs = { 16: await rasterize(svg_icon, 16), 32: await rasterize(svg_icon, 32) }
     const out = await api('/api/save', {
       index: cand.index, scheme: current.scheme,
-      colors: { fg: current.fg, bg: current.bg }, svg_icon, svg_logo, pngs,
+      colors: { fg: current.fg, bg: current.bg },
+      icons: { ...cand.icons, ...chosen[cand.index] }, svg_icon, svg_logo, pngs,
     })
     status(`Saved: ${out.saved.join(', ')}`)
   } catch (err) {
@@ -326,6 +387,7 @@ async function regenerate() {
   const raw = document.getElementById('seed').value.trim()
   const seed = raw && Number.isInteger(+raw) && +raw !== state.seed ? +raw : undefined
   state = await api('/api/regenerate', seed === undefined ? {} : { seed })
+  for (const k of Object.keys(chosen)) delete chosen[k]  // fresh icons on regenerate
   render()
 }
 

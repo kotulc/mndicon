@@ -9,10 +9,16 @@ const path = require('path')
 const yaml = require('js-yaml')
 const { SCHEMES, bake_colors, resolve_scheme } = require('./colors')
 const { TYPESETS } = require('./compose')
+const { ICON_ROLES, load_icon } = require('./icons')
 const { generate_candidates, title_parts } = require('./generate')
 
 
 const PAGE = path.join(__dirname, '..', 'viewer', 'index.html')
+
+// Icon name -> inner markup, sent once so the viewer's icon dropdowns can swap in place
+const ICON_BODIES = Object.fromEntries(
+  Object.values(ICON_ROLES).flat().map(name => [name, load_icon(name).body])
+)
 
 
 function create_server(config) {
@@ -51,7 +57,10 @@ function payload(config, { seed, candidates }) {
   /** Viewer JSON: candidates plus the global scheme, title, and typeset options. */
   const schemes = ['grey', ...Object.keys(SCHEMES)].map(name => ({ name, ...resolve_scheme(name) }))
   const { parts, sep } = title_parts(config)
-  return { title: config.title, title_parts: parts, sep, seed, schemes, typesets: TYPESETS, candidates }
+  return {
+    title: config.title, title_parts: parts, sep, seed, schemes, typesets: TYPESETS,
+    icon_roles: ICON_ROLES, icon_bodies: ICON_BODIES, candidates,
+  }
 }
 
 
@@ -70,8 +79,8 @@ function save_candidate(config, current, data) {
     'icon.svg': bake_colors(sent(data.svg_icon) || cand.svg_icon, colors),
     'logo.svg': bake_colors(sent(data.svg_logo) || cand.svg_logo, colors),
     'brand.yaml': yaml.dump({
-      title: config.title, seed: cand.seed, template: cand.template, icons: cand.icons,
-      chars: cand.chars, scheme: data.scheme, colors,
+      title: config.title, seed: cand.seed, template: cand.template,
+      icons: data.icons || cand.icons, scheme: data.scheme, colors,
     }),
   }
   for (const [px, url] of Object.entries(data.pngs || {})) {

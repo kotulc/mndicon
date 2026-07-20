@@ -1,9 +1,8 @@
 /**
  * Seeded candidate generation for mndicon.
- * One mulberry32 stream drives the random picks — template and icons only,
- * layer positions are absolute as defined in the template — in a fixed order,
- * so a single integer seed reproduces a full candidate set (compatible with
- * mdsite's logo_seed workflow).
+ * Produces one candidate per composition template; a mulberry32 stream drives
+ * the only random picks (the icons) in a fixed order, so a single integer seed
+ * reproduces a full candidate set (compatible with mdsite's logo_seed).
  */
 const { ICON_ROLES, load_icon } = require('./icons')
 const { compose_icon, compose_logo } = require('./compose')
@@ -23,31 +22,26 @@ function create_rng(seed) {
 
 
 function generate_candidates(config) {
-  /** Build config.n_candidates seeded candidate records with rendered SVGs. */
+  /** Build one seeded candidate record per composition template. */
   const seed = config.seed ?? Date.now() % 1e9
   const rng  = create_rng(seed)
   const { parts, sep } = title_parts(config)
-  const candidates = []
 
-  for (let index = 0; index < config.n_candidates; index++) {
-    const template = pick(rng, Object.keys(TEMPLATES))
-    const icons    = {}
-
+  const candidates = Object.keys(TEMPLATES).map((template, index) => {
+    const icons = {}
     const layers = resolve_template(template).map(layer => {
       if (layer.role === 'rect') return { ...layer, body: '' }
-      if (layer.role === 'char') return { ...layer, body: title_chars(parts) }
       const name = pick(rng, ICON_ROLES[layer.role])
       icons[layer.role] = name
       return { ...layer, body: load_icon(name).body }
     })
 
-    candidates.push({
+    return {
       index, seed, template, icons,
-      chars:    template === 'character' ? title_chars(parts) : '',
       svg_icon: compose_icon(layers, `c${index}-`),
       svg_logo: compose_logo(layers, parts, sep, `c${index}-`),
-    })
-  }
+    }
+  })
 
   return { seed, candidates }
 }
@@ -59,12 +53,6 @@ function pick(rng, list) {
 }
 
 
-function title_chars(parts) {
-  /** Character-layer text: one initial for single-part titles, two otherwise. */
-  return (parts.length > 1 ? parts[0][0] + parts[1][0] : parts[0][0]).toUpperCase()
-}
-
-
 function title_parts(config) {
   /** Normalized title parts and separator (config may bypass load_config in tests). */
   if (config.title_parts) return { parts: config.title_parts, sep: config.sep ?? '' }
@@ -72,4 +60,4 @@ function title_parts(config) {
 }
 
 
-module.exports = { create_rng, generate_candidates, pick, title_chars, title_parts }
+module.exports = { create_rng, generate_candidates, pick, title_parts }

@@ -7,7 +7,6 @@ const { CANVAS, compose_icon, compose_logo, place } = require('../scripts/compos
 
 const SOLID = { role: 'solid', dx: 0, size: 1.0, ink: 'bg', body: '<path d="M0 0h16v16H0z"/>' }
 const FORE  = { role: 'fore', dx: 22, size: 0.5, ink: 'fg', body: '<path d="M8 0 16 16H0z"/>' }
-const CHAR  = { role: 'char', dx: 0, size: 0.8, ink: 'fg', body: 'MS' }
 const CUT   = { role: 'fore', dx: 0, size: 0.5, cut: true, body: '<path d="M8 0 16 16H0z"/>' }
 const RECT  = { role: 'rect', dx: 0, size: 1.0, ink: 'bg' }
 
@@ -49,12 +48,6 @@ describe('compose_icon', () => {
   test('test_icon_cut_first_throws', () => {
     /** A cut layer with nothing below it is a template error. */
     expect(() => compose_icon([CUT])).toThrow(/'cut' layer needs a layer below/)
-  })
-
-  test('test_icon_char_text', () => {
-    /** Character layers render centered <text> with the given glyphs. */
-    const svg = compose_icon([SOLID, CHAR])
-    expect(svg).toMatch(/<text x="48" y="48" text-anchor="middle"[^>]*>MS<\/text>/)
   })
 
   test('test_icon_rect_canvas_fill', () => {

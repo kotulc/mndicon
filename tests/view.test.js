@@ -17,7 +17,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
 let tmp, server, port
 beforeEach(done => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mndicon-view-'))
-  server = create_server({ title: 'My Site', n_candidates: 2, seed: 7, output: tmp })
+  server = create_server({ title: 'My Site', seed: 7, output: tmp })
   server.listen(0, () => { port = server.address().port; done() })
 })
 afterEach(done => {
@@ -56,11 +56,13 @@ describe('view server', () => {
     const { status, data } = await request('GET', '/api/candidates')
     expect(status).toBe(200)
     expect(data.seed).toBe(7)
-    expect(data.candidates).toHaveLength(2)
+    expect(data.candidates.map(c => c.template)).toEqual(['overlay', 'cutout', 'frame'])
     expect(data.schemes[0]).toMatchObject({ name: 'grey' })
     expect(data.schemes[1].fg).toMatch(/^hsl\(/)
     expect(data.title_parts).toEqual(['My', 'Site'])
     expect(Object.keys(data.typesets)).toContain('geometric')
+    expect(data.icon_roles.fore).toContain('activity')
+    expect(data.icon_bodies.activity).toMatch(/<path/)
   })
 
   test('test_regenerate_deterministic', async () => {

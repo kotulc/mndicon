@@ -6,7 +6,7 @@ MndIcon is a branding utility intended to augment MdSite (https://github.com/kot
 
 
 ## About
-This config driven utility returns n_candidates (defaults to 3) sets of icons, logos, and color themes. This utility may also be used to view each candidate set and select suggested color themes that then get applied to each candidate. Candidate assets may then be saved locally.
+This config driven utility returns one candidate set of icons, logos, and color themes per composition template. This utility may also be used to view each candidate set and select suggested color themes that then get applied to each candidate. Candidate assets may then be saved locally.
 
 Sample color themes are randomly selected from standard complementary color sets.
 
@@ -23,17 +23,17 @@ node scripts/cli.js view --title "My Site"  # or configure entirely by flags
 node scripts/cli.js generate --seed 7       # headless: greyscale svgs + candidates.yaml
 ```
 
-Configuration lives in `mndicon.yaml` (only `title` is required); flags `--title --n --seed
+Configuration lives in `mndicon.yaml` (only `title` is required); flags `--title --seed
 --out --port --config` override it. The title may be a plain string (`My Site`) or a list of
-individually styleable parts (`["M", "n", "D", "Icon"]`, rendered adjacently). Each candidate
-shows its favicon previews beside the large icon on both light and dark panels, greyscale
-first. One global control set applies to every candidate: preset complementary pairs,
-primary/secondary color pickers, a `title` toggle to preview the icon + title logo, seeded
-Regenerate, and a `components` tuner adjusting the size, position, and visibility of each
-component (background rect incl. corner roundness, icons, characters) plus per-part title
-color/weight/size and a typeset dropdown. Save serializes the tuned SVGs and writes
-`icon.svg`, `logo.svg`, `favicon-16/32.png` and a `brand.yaml` provenance record. Favicons
-are rasterized in the browser, so saved output matches the preview.
+individually styleable parts (`["M", "n", "D", "Icon"]`, rendered adjacently). One candidate
+is generated per template; each shows its favicon previews beside the large icon on both
+light and dark panels, greyscale first. Global controls cover preset complementary pairs,
+primary/secondary color pickers, a `title` toggle, seeded Regenerate, and the title tuner
+(per-part show/color/weight/size/position plus a typeset dropdown). The icon tuner follows
+the selected candidate card (click to select, first by default): per-layer icon dropdowns,
+show/size/position sliders, and rect width/height/roundness. Save serializes the tuned SVGs
+and writes `icon.svg`, `logo.svg`, `favicon-16/32.png` and a `brand.yaml` provenance record.
+Favicons are rasterized in the browser, so saved output matches the preview.
 
 Composition templates are plain data in `scripts/templates.js`: each template is an ordered
 list of layers on the 96x96 canvas with `role` (icon pool, or `rect` = canvas fill), `dx`
@@ -45,7 +45,6 @@ There are several templates used for icon compositions:
 - Overlay: Background icons are offset and overlaid with contrasting colors
 - Cutout: The foreground icon is subtracted from the solid background icon
 - Frame: The foreground icon is framed by the enlarged background icon (think badge)
-- Character: A character or set of characters (based on the number of words in the title) and selected icon are combined and offset
 
 Only the icons are randomized — every layer position is absolute as defined in its template
 (a horizontal pixel offset from center). Every template keeps a solid backing (icon or canvas
@@ -79,4 +78,4 @@ Programmatic svg composition and color theming engine:
 4. Select preffered icon set + color theme and save (UI)
 
 Composition objects:
-Template, primary icon/characters secondary icon, color palette (bg/fg)
+Template, primary icon, secondary icon, color palette (bg/fg)

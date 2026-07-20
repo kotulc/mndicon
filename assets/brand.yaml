@@ -1,0 +1,10 @@
+title: MNDicon
+seed: 522669835
+template: overlay
+icons:
+  solid: square-fill
+  fore: crop
+scheme: blue
+colors:
+  fg: '#fbf2df'
+  bg: '#2857bd'

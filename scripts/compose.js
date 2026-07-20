@@ -45,17 +45,10 @@ function place(size, dx) {
 
 
 function paint_layer(layer) {
-  /** Render one resolved layer: canvas rect, character text, or icon markup. */
+  /** Render one resolved layer: canvas rect or icon markup. */
   if (layer.role === 'rect') {
     return `<rect data-role="rect" x="0" y="0" width="${CANVAS}" height="${CANVAS}" rx="14" ` +
            `fill="${ink(layer.ink)}"/>`
-  }
-  if (layer.role === 'char') {
-    const size = round(layer.size * CANVAS * (layer.body.length > 1 ? 0.5 : 0.72))
-    return `<g data-role="char" data-fs="${size}" data-dx="${layer.dx}" fill="${ink(layer.ink)}">` +
-           `<text x="${CANVAS / 2 + layer.dx}" y="${CANVAS / 2}" text-anchor="middle" ` +
-           `dominant-baseline="central" font-family="${FONT}" font-weight="700" ` +
-           `font-size="${size}">${esc(layer.body)}</text></g>`
   }
   return `<g data-role="${layer.role}" data-size="${layer.size}" data-dx="${layer.dx}" ` +
          `fill="${ink(layer.ink)}" transform="${place(layer.size, layer.dx)}">${layer.body}</g>`

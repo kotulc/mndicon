@@ -1,7 +1,7 @@
 /**
  * mndicon CLI — generate icon/logo candidates and serve the selection viewer.
  * Usage: node scripts/cli.js [view|generate] [--config <path>] [--title <t>]
- *        [--seed <n>] [--n <count>] [--out <dir>] [--port <p>]
+ *        [--seed <n>] [--out <dir>] [--port <p>]
  */
 const fs   = require('fs')
 const path = require('path')

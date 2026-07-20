@@ -24,7 +24,6 @@ describe('load_config', () => {
   test('test_defaults_applied', () => {
     /** A minimal config gets every DEFAULTS value and resolves output near the YAML. */
     const cfg = load_config(write_yaml('title: t'))
-    expect(cfg.n_candidates).toBe(DEFAULTS.n_candidates)
     expect(cfg.seed).toBeNull()
     expect(cfg.port).toBe(DEFAULTS.port)
     expect(cfg.output).toBe(path.resolve(tmp, 'brand'))
@@ -53,21 +52,15 @@ describe('load_config', () => {
 
   test('test_flags_override_yaml', () => {
     /** CLI flags win over YAML values and numeric strings are coerced. */
-    const cfg = load_config(write_yaml('title: t\nseed: 1'), { title: 'flag', seed: '42', n: '5' })
+    const cfg = load_config(write_yaml('title: t\nseed: 1'), { title: 'flag', seed: '42' })
     expect(cfg.title).toBe('flag')
     expect(cfg.seed).toBe(42)
-    expect(cfg.n_candidates).toBe(5)
   })
 
   test('test_no_yaml_with_title_flag', () => {
     /** A missing config file is fine when flags supply the title. */
     const cfg = load_config(path.join(tmp, 'absent.yaml'), { title: 't' })
     expect(cfg.title).toBe('t')
-  })
-
-  test('test_invalid_n_candidates_throws', () => {
-    /** n_candidates must be a positive integer. */
-    expect(() => load_config(write_yaml('title: t\nn_candidates: 0'))).toThrow(/positive integer/)
   })
 
   test('test_invalid_seed_throws', () => {

@@ -4,10 +4,10 @@
  */
 const { ICON_ROLES } = require('../scripts/icons')
 const { TEMPLATES } = require('../scripts/templates')
-const { create_rng, generate_candidates, title_chars } = require('../scripts/generate')
+const { create_rng, generate_candidates } = require('../scripts/generate')
 
 
-const CONFIG = { title: 'My Site', n_candidates: 3, seed: 7 }
+const CONFIG = { title: 'My Site', seed: 7 }
 
 
 describe('generate_candidates', () => {
@@ -23,13 +23,12 @@ describe('generate_candidates', () => {
     expect(a.candidates[0].svg_icon).not.toBe(b.candidates[0].svg_icon)
   })
 
-  test('test_candidate_count_and_shape', () => {
-    /** n_candidates is honored and every pick comes from the registered tables. */
-    const { seed, candidates } = generate_candidates({ ...CONFIG, n_candidates: 5 })
+  test('test_one_candidate_per_template', () => {
+    /** Exactly one candidate per template, with every icon from the registered tables. */
+    const { seed, candidates } = generate_candidates(CONFIG)
     expect(seed).toBe(7)
-    expect(candidates).toHaveLength(5)
+    expect(candidates.map(c => c.template)).toEqual(Object.keys(TEMPLATES))
     for (const cand of candidates) {
-      expect(Object.keys(TEMPLATES)).toContain(cand.template)
       for (const [role, name] of Object.entries(cand.icons)) expect(ICON_ROLES[role]).toContain(name)
       expect(cand.svg_icon).toMatch(/^<svg /)
       expect(cand.svg_logo).toMatch(/<tspan data-part="0">My<\/tspan> <tspan data-part="1">Site<\/tspan>/)
@@ -56,9 +55,4 @@ describe('helpers', () => {
     }
   })
 
-  test.each([[['My', 'Site'], 'MS'], [['solo'], 'S'], [['a', 'b', 'c'], 'AB']])(
-    'test_title_chars_%#', (parts, chars) => {
-      /** One initial for single-part titles, first two initials otherwise. */
-      expect(title_chars(parts)).toBe(chars)
-    })
 })

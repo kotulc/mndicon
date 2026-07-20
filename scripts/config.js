@@ -9,15 +9,14 @@ const yaml = require('js-yaml')
 
 
 const DEFAULTS = {
-  title:        '',
-  n_candidates: 3,
-  seed:         null,
-  output:       './brand',
-  port:         8646,
+  title:  '',
+  seed:   null,
+  output: './brand',
+  port:   8646,
 }
 
 // CLI flag name -> config key (flags override YAML values)
-const FLAG_KEYS = { title: 'title', n: 'n_candidates', seed: 'seed', out: 'output', port: 'port' }
+const FLAG_KEYS = { title: 'title', seed: 'seed', out: 'output', port: 'port' }
 
 
 function load_config(yaml_path, flags = {}) {
@@ -30,7 +29,7 @@ function load_config(yaml_path, flags = {}) {
   for (const [flag, key] of Object.entries(FLAG_KEYS)) {
     if (flags[flag] !== undefined) cfg[key] = flags[flag]
   }
-  for (const key of ['n_candidates', 'seed', 'port']) {
+  for (const key of ['seed', 'port']) {
     if (typeof cfg[key] === 'string') cfg[key] = parseInt(cfg[key], 10)
   }
 
@@ -43,9 +42,6 @@ function load_config(yaml_path, flags = {}) {
   cfg.sep         = Array.isArray(cfg.title) ? '' : ' '
   cfg.title_parts = (Array.isArray(cfg.title) ? cfg.title : String(cfg.title).trim().split(/\s+/)).map(String)
   cfg.title       = cfg.title_parts.join(cfg.sep)
-  if (!Number.isInteger(cfg.n_candidates) || cfg.n_candidates < 1) {
-    throw new Error(`mndicon.yaml: 'n_candidates' must be a positive integer`)
-  }
   if (cfg.seed !== null && !Number.isInteger(cfg.seed)) {
     throw new Error(`mndicon.yaml: 'seed' must be an integer`)
   }
