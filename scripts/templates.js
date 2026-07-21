@@ -13,22 +13,22 @@
  *   cut   true = subtract this layer from the layer below (SVG mask), no ink
  */
 
-const ROLES = ['frame', 'solid', 'fore']
+const ROLES = ['outline', 'background', 'foreground', 'symbol']  // valid layer roles; see ICON_ROLES
 
 
 const TEMPLATES = {
   overlay: [
-    { role: 'solid', dx: 0, size: 1.0, ink: 'bg' },
-    { role: 'fore',  dx: 0, size: 0.7, ink: 'fg' },
+    { role: 'background', dx: 0, size: 1.0, ink: 'bg' },
+    { role: 'foreground',  dx: 0, size: 0.65, ink: 'fg' },
   ],
   cutout: [
-    { role: 'solid', dx: 0, size: 1.0,  ink: 'bg' },
-    { role: 'fore',  dx: 0, size: 0.7, cut: true },
+    { role: 'background', dx: 0, size: 1.0,  ink: 'bg' },
+    { role: 'symbol',  dx: 0, size: 0.7, cut: true },
   ],
   frame: [
-    { role: 'solid', dx: 0, size: 1.0, ink: 'bg' },
-    { role: 'frame', dx: 0, size: 0.75, ink: 'fg' },
-    { role: 'fore',  dx: 0, size: 0.5, ink: 'fg' },
+    { role: 'background', dx: 0, size: 1.2, ink: 'bg' },
+    { role: 'outline', dx: 0, size: 0.75, ink: 'fg' },
+    { role: 'symbol',  dx: 0, size: 0.5, ink: 'fg' },
   ],
 }
 

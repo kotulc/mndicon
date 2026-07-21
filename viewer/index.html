@@ -127,7 +127,6 @@ const logo = {
 }
 let title_markup = null                       // cached <text data-role="title">...</text>, same for every candidate
 
-const ROLE_ORDER = ['solid', 'frame', 'fore']
 const WEIGHTS = [400, 500, 600, 700, 800]
 
 async function api(url, body) {
@@ -321,12 +320,15 @@ function comp_state(index, role, init) {
 }
 
 function render_comp_rows(index, container) {
+  // Roles are discovered from the composed SVG itself, in document order (which
+  // matches the template's own layer order) — never a hardcoded list, so adding,
+  // removing, or renaming roles in icons.js/templates.js needs no viewer change
   const cand = state.candidates[index]
   const card_el = container.closest('.card')
   const roles = [...new Set([...card_el.querySelectorAll('[data-role]')].map(n => n.dataset.role))]
   container.innerHTML = ''
 
-  for (const role of ROLE_ORDER.filter(r => roles.includes(r))) {
+  for (const role of roles) {
     // A cut (subtractive mask) layer has no fill of its own (raw #000 inside its
     // <mask>) and gets no color control; painted layers carry fill="var(--fg/bg)"
     const fill = card_el.querySelector(`[data-role="${role}"]`).getAttribute('fill') || ''

@@ -13,7 +13,10 @@ describe('templates', () => {
 
   test('test_unknown_template_throws', () => {
     /** Unknown template names list the valid ones. */
-    expect(() => resolve_template('mosaic')).toThrow(/unknown template 'mosaic'.*overlay, cutout/)
+    let message = ''
+    try { resolve_template('mosaic') } catch (err) { message = err.message }
+    expect(message).toMatch(/unknown template 'mosaic'/)
+    for (const name of Object.keys(TEMPLATES)) expect(message).toContain(name)
   })
 
   test('test_layer_fields_in_range', () => {

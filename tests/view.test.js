@@ -8,6 +8,8 @@ const os   = require('os')
 const path = require('path')
 
 const { create_server } = require('../scripts/view')
+const { ICON_ROLES } = require('../scripts/icons')
+const { TEMPLATES } = require('../scripts/templates')
 
 // 1x1 transparent PNG, the smallest valid rasterization payload
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' +
@@ -56,13 +58,13 @@ describe('view server', () => {
     const { status, data } = await request('GET', '/api/candidates')
     expect(status).toBe(200)
     expect(data.seed).toBe(7)
-    expect(data.candidates.map(c => c.template)).toEqual(['overlay', 'cutout', 'frame'])
+    expect(data.candidates.map(c => c.template)).toEqual(Object.keys(TEMPLATES))
     expect(data.schemes[0]).toMatchObject({ name: 'grey' })
     expect(data.schemes[1].fg).toMatch(/^hsl\(/)
     expect(data.title_parts).toEqual(['My', 'Site'])
     expect(Object.keys(data.typesets)).toContain('geometric')
-    expect(data.icon_roles.fore).toContain('activity')
-    expect(data.icon_bodies.activity).toMatch(/<path/)
+    expect(data.icon_roles).toEqual(ICON_ROLES)
+    for (const name of Object.values(ICON_ROLES).flat()) expect(data.icon_bodies[name]).toMatch(/<path/)
   })
 
   test('test_get_asset_logo', async () => {

@@ -12,9 +12,10 @@ const VIEW     = 16  // every bootstrap icon ships as viewBox="0 0 16 16"
 
 // Composition role -> curated icon names appropriate for that slot
 const ICON_ROLES = {
-  frame: ['app', 'shield', 'square', 'file', 'hexagon', 'octagon'],
-  solid: ['square-fill', 'file-fill', 'hexagon-fill', 'octagon-fill'],
-  fore:  ['activity', 'box', 'boxes', 'braces', 'chevron-bar-expand', 'chevron-expand', 'crop', 'diamond-half'],
+  background: ['square-fill', 'file-fill', 'pentagon-fill', 'hexagon-fill', 'octagon-fill', 'diamond-fill'],
+  foreground:  ['grid-fill', 'grid-1x2-fill', 'grid-3x3-gap-fill', 'eject-fill', 'x-diamond-fill', 'brightness-high-fill', 'capslock-fill', 'box-fill'],
+  outline: ['app', 'square', 'diamond', 'suit-diamond', 'file', 'hexagon', 'octagon', 'bounding-box', 'bounding-box-circles', 'braces'],
+  symbol: ['activity', 'asterisk', 'aspect-ratio-fill', 'box', 'boxes', 'brightness-high', 'chevron-bar-expand', 'chevron-expand', 'crop', 'diamond-half'],
 }
 
 
