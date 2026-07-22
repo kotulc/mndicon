@@ -1,0 +1,11 @@
+title: MNDicon
+seed: 692573911
+template: frame
+icons:
+  background: diamond-fill
+  outline: bounding-box
+  symbol: activity
+scheme: blue
+colors:
+  fg: hsl(41 80% 93%)
+  bg: hsl(221 65% 45%)

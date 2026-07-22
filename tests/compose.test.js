@@ -47,7 +47,7 @@ describe('compose_icon', () => {
      *  content space, throwing the cutout icon's placement far off canvas). */
     const svg = compose_icon([SOLID, CUT])
     expect(svg).toMatch(/<mask id="cut1" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96">/)
-    expect(svg).toMatch(/<g mask="url\(#cut1\)"><g data-role="solid"[^>]*>/)
+    expect(svg).toMatch(/<g mask="url\(#cut1\)" data-masked-by="cut1"><g data-role="solid"[^>]*>/)
   })
 
   test('test_icon_cut_first_throws', () => {
@@ -66,8 +66,7 @@ describe('compose_icon', () => {
     /** A uid prefixes mask ids so compositions can share one document. */
     const svg = compose_icon([SOLID, CUT], 'c2-')
     expect(svg).toMatch(/<mask id="c2-cut1" maskUnits="userSpaceOnUse"/)
-    expect(svg).toMatch(/<g mask="url\(#c2-cut1\)">/)
-    expect(svg).toMatch(/mask="url\(#c2-cut1\)"/)
+    expect(svg).toMatch(/<g mask="url\(#c2-cut1\)" data-masked-by="c2-cut1">/)
   })
 })
 

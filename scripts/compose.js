@@ -71,7 +71,10 @@ function render_layers(layers, uid) {
       // <g transform="..."> directly: mask content shares the referencing element's
       // user space, which otherwise compounds with that element's own transform and
       // throws the cutout icon's placement far off (e.g. into a corner)
-      parts[parts.length - 1] = `<g mask="url(#${id})">${parts[parts.length - 1]}</g>`
+      // data-masked-by is a stable marker distinct from the mask attribute itself:
+      // the viewer toggles mask on/off to show/hide the cutout, and needs a
+      // never-removed way to re-find this wrapper once mask has been stripped
+      parts[parts.length - 1] = `<g mask="url(#${id})" data-masked-by="${id}">${parts[parts.length - 1]}</g>`
     } else {
       parts.push(paint_layer(layer))
     }

@@ -29,7 +29,7 @@ const TEMPLATES = {
   overlay: [
     { role: 'background', dx: 0, size: 1.0, ink: 'bg' },
     { role: 'foreground',  dx: 0, size: 0.6, ink: 'fg' },
-    { role: 'symbol',  dx: 0, size: 0.4, cut: true },
+    { role: 'symbol',  dx: 0, size: 0.4, ink: 'bg' },
   ],
 }
 

@@ -1,0 +1,10 @@
+title: MNDicon
+seed: 693460116
+template: cutout
+icons:
+  background: file-fill
+  symbol: crop
+scheme: custom
+colors:
+  fg: hsl(0 0% 98%)
+  bg: hsl(240 5% 29%)

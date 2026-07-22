@@ -1,0 +1,11 @@
+title: MNDicon
+seed: 692573911
+template: overlay
+icons:
+  background: octagon-fill
+  foreground: box-fill
+  symbol: brightness-high
+scheme: blue
+colors:
+  fg: hsl(41 80% 93%)
+  bg: hsl(221 65% 45%)

@@ -99,6 +99,11 @@
   .active-drag:active { cursor: grabbing }
 
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px }
+  /* The logo canvas is often much wider than it looks against the panel's own
+     padding, with no other cue for where dragging can and can't reach — mark
+     its true edges explicitly. A plain CSS border on the root svg is safe from
+     the svg's own overflow:hidden (that only clips content, not the border). */
+  .panels .main svg { border: 1px dashed var(--pg-muted) }
 
   #status { position: fixed; bottom: 16px; right: 16px; background: #18181b; color: #fafafa;
             border: 1px solid #52525b; padding: 10px 16px; border-radius: 8px; font-size: 13px;
@@ -251,10 +256,14 @@ function select_active(row) {
   apply()
 }
 
-function row_for(desc) {
-  return desc.kind === 'layer' ? document.querySelector(`.row[data-kind="layer"][data-index="${desc.index}"][data-sel-role="${desc.role}"]`)
-       : desc.kind === 'logo'  ? document.querySelector(`.row[data-kind="logo"][data-sel-role="${desc.role}"]`)
-       : document.querySelector(`.row[data-kind="title"][data-index="${desc.index}"]`)
+function deselect() {
+  active = null
+  document.querySelectorAll('.row.selected').forEach(r => r.classList.remove('selected'))
+  apply()
+}
+
+function owner_card_of(desc) {
+  return desc.kind === 'layer' ? document.querySelector(`.card[data-index="${desc.index}"]`) : document.getElementById('logo-card')
 }
 
 function state_for(desc) {
@@ -268,6 +277,16 @@ document.getElementById('grid').addEventListener('click', e => {
   // components frequently overlap there, making click-to-select unreliable
   const row = e.target.closest('.row')
   if (row && row.dataset.kind) select_active(row)
+})
+
+document.addEventListener('click', e => {
+  // Clicking outside the card that owns the current selection clears it. A
+  // click on a selectable row is left alone here — the #grid listener above
+  // already moved `active` to that new row, so re-checking it against the OLD
+  // selection's owner card would be meaningless.
+  if (!active || e.target.closest('.row[data-kind]')) return
+  const owner = owner_card_of(active)
+  if (!owner || !owner.contains(e.target)) deselect()
 })
 
 document.getElementById('grid').addEventListener('pointerdown', e => {
@@ -285,7 +304,6 @@ document.getElementById('grid').addEventListener('pointerdown', e => {
   if (!comp_state) return
   e.preventDefault()
 
-  const row = row_for(active)
   const svg = main.querySelector(':scope > svg')
   if (!svg) return
   const box = svg.getBoundingClientRect()
@@ -293,15 +311,21 @@ document.getElementById('grid').addEventListener('pointerdown', e => {
   const scale_x = (vb.width || 96) / box.width
   const scale_y = (vb.height || 96) / box.height
   const start = { x: e.clientX, y: e.clientY, dx: comp_state.dx, dy: comp_state.dy ?? 0 }
-  const dx_input = row && row.querySelector('[data-k="dx"]')
-  const dy_input = row && row.querySelector('[data-k="dy"]')
-  const clamp = (v, input) => input ? Math.max(+input.min, Math.min(+input.max, v)) : v
+  // Same bounds the now-removed x/y sliders used to enforce, per component kind.
+  // Everything in the logo card (icon, title, rect, circle) sits on the logo's
+  // own canvas, which is often much wider than 96 units — their horizontal
+  // range scales with its actual width, or they'd be stuck unable to reach
+  // anywhere near its edges (vertical range stays fixed: canvas height is
+  // always 96 regardless of width). Template-card icon layers are the only
+  // case still on a fixed 96-unit canvas, so they keep the fixed ±48.
+  const limit = active.kind === 'title' ? { dx: vb.width / 2, dy: 20 }
+              : active.kind === 'logo'  ? { dx: vb.width / 2, dy: 48 }
+              : { dx: 48, dy: 48 }
+  const clamp = (v, max) => Math.max(-max, Math.min(max, v))
 
   function move(ev) {
-    comp_state.dx = clamp(start.dx + (ev.clientX - start.x) * scale_x, dx_input)
-    if ('dy' in comp_state) comp_state.dy = clamp(start.dy + (ev.clientY - start.y) * scale_y, dy_input)
-    if (dx_input) dx_input.value = comp_state.dx
-    if (dy_input) dy_input.value = comp_state.dy
+    comp_state.dx = clamp(start.dx + (ev.clientX - start.x) * scale_x, limit.dx)
+    if ('dy' in comp_state) comp_state.dy = clamp(start.dy + (ev.clientY - start.y) * scale_y, limit.dy)
     apply()
   }
   function up() {
@@ -443,8 +467,6 @@ function render_comp_rows(index, container) {
       <div class="fields">
         <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
         <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
-        <label>x <input type="range" data-k="dx" min="-48" max="48" value="${c.dx}"></label>
-        <label>y <input type="range" data-k="dy" min="-48" max="48" value="${c.dy}"></label>
         <label>icon <select data-k="icon">
           ${state.icon_roles[role].map(n => `<option ${n === ((chosen[index] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
         </select></label>
@@ -482,8 +504,6 @@ function render_part_rows(container) {
       <div class="fields">
         <label>show <input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}></label>
         <label>size <input type="range" data-k="scale" min="0.4" max="1.6" step="0.05" value="${p.scale}"></label>
-        <label>x <input type="range" data-k="dx" min="-40" max="40" value="${p.dx}"></label>
-        <label>y <input type="range" data-k="dy" min="-20" max="20" value="${p.dy}"></label>
         <label>weight <select data-k="weight">
           ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
         </select></label>
@@ -533,8 +553,6 @@ function logo_card() {
     <div class="fields">
       <label>show <input type="checkbox" data-k="show" ${logo.flat.show ? 'checked' : ''}></label>
       <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.flat.scale}"></label>
-      <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.flat.dx}"></label>
-      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.flat.dy}"></label>
     </div>`
   wire_row(flat_row, logo.flat)
   rows.appendChild(flat_row)
@@ -547,8 +565,6 @@ function logo_card() {
     <div class="fields">
       <label>show <input type="checkbox" data-k="show" ${logo.circle.show ? 'checked' : ''}></label>
       <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.circle.scale}"></label>
-      <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.circle.dx}"></label>
-      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.circle.dy}"></label>
       ${ink_html()}
     </div>`
   wire_row(circle_row, logo.circle)
@@ -563,8 +579,6 @@ function logo_card() {
       <label>show <input type="checkbox" data-k="show" ${logo.rect.show ? 'checked' : ''}></label>
       <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${logo.rect.w}"></label>
       <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${logo.rect.h}"></label>
-      <label>x <input type="range" data-k="dx" min="-48" max="48" value="${logo.rect.dx}"></label>
-      <label>y <input type="range" data-k="dy" min="-48" max="48" value="${logo.rect.dy}"></label>
       ${ink_html()}
       <label>round <input type="range" data-k="rx" min="0" max="48" value="${logo.rect.rx}"></label>
     </div>`
@@ -619,7 +633,24 @@ function apply() {
     for (const el of card.querySelectorAll('[data-role]')) {
       const c = (comps[index] || {})[el.dataset.role]
       if (!c) continue
-      el.style.display = c.show ? '' : 'none'
+
+      const mask_el = el.closest('mask')
+      if (mask_el) {
+        // Cut (subtractive) layer: toggle whether the mask is APPLIED to its
+        // target rather than the layer's own display. Some browsers are slow
+        // to repaint a <mask> when only its content's display changes; adding
+        // or removing the mask attribute on the (unmasked) target repaints
+        // reliably. data-masked-by is a stable marker (never removed) so the
+        // target is always findable even once its mask attribute is gone.
+        const target = el.closest('svg').querySelector(`[data-masked-by="${mask_el.id}"]`)
+        if (target) {
+          if (c.show) target.setAttribute('mask', `url(#${mask_el.id})`)
+          else target.removeAttribute('mask')
+        }
+      } else {
+        el.style.display = c.show ? '' : 'none'
+      }
+
       if (c.ink) el.setAttribute('fill', ink_css(c.ink))
       const size = +el.dataset.size * c.scale
       el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
@@ -684,7 +715,10 @@ function apply() {
     } else {
       el.setAttribute('cx', vbw / 2 + c.dx)
       el.setAttribute('cy', 48 + c.dy)
-      el.setAttribute('r', 48 * c.scale)
+      // Radius relative to canvas WIDTH (matching rect's own w/h), not a fixed
+      // 48 (half the 96-tall canvas) — otherwise the circle could never span
+      // more than ~168 units even on a logo canvas hundreds of units wide
+      el.setAttribute('r', (vbw * c.scale) / 2)
     }
     el.classList.toggle('active-drag', active?.kind === 'logo' && active.role === role)
   }
