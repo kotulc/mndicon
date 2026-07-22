@@ -17,10 +17,6 @@ const ROLES = ['outline', 'background', 'foreground', 'symbol']  // valid layer 
 
 
 const TEMPLATES = {
-  overlay: [
-    { role: 'background', dx: 0, size: 1.0, ink: 'bg' },
-    { role: 'foreground',  dx: 0, size: 0.65, ink: 'fg' },
-  ],
   cutout: [
     { role: 'background', dx: 0, size: 1.0,  ink: 'bg' },
     { role: 'symbol',  dx: 0, size: 0.7, cut: true },
@@ -29,6 +25,11 @@ const TEMPLATES = {
     { role: 'background', dx: 0, size: 1.2, ink: 'bg' },
     { role: 'outline', dx: 0, size: 0.75, ink: 'fg' },
     { role: 'symbol',  dx: 0, size: 0.5, ink: 'fg' },
+  ],
+  overlay: [
+    { role: 'background', dx: 0, size: 1.0, ink: 'bg' },
+    { role: 'foreground',  dx: 0, size: 0.6, ink: 'fg' },
+    { role: 'symbol',  dx: 0, size: 0.4, cut: true },
   ],
 }
 

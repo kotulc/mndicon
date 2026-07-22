@@ -42,10 +42,15 @@
   #tuner h3 { font-size: 12px; font-weight: 600; color: var(--pg-muted); margin: 10px 0 4px;
               text-transform: uppercase; letter-spacing: 0.04em }
   .rows { background: var(--pg-card); border: 1px solid var(--pg-border);
-          border-radius: 10px; padding: 6px 14px; font-size: 13px }
+          border-radius: 10px; padding: 6px 14px; font-size: 13px; overflow: hidden }
   .row { display: grid; grid-template-columns: 74px 1fr; align-items: start; gap: 12px; padding: 6px 0 }
   .row.icon-row { grid-template-columns: 28px 1fr }
   .row + .row { border-top: 1px solid var(--pg-border) }
+  /* Extend to the container's edges via negative margin (offset by matching
+     padding so content doesn't shift) so overflow:hidden on .rows clips this
+     to the same rounded corners instead of showing square-cornered highlight */
+  .row.selected { background: rgba(59, 130, 246, .15);
+                  margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px }
   .row b { font-weight: 600; color: var(--pg-text) }
   .row .thumb { width: 22px; height: 22px; color: var(--pg-text) }
   .row .fields { display: flex; flex-wrap: wrap; align-items: center; gap: 12px }
@@ -86,7 +91,12 @@
   .favs .f32 svg { width: 32px; height: 32px }
   .favs .f16 svg { width: 16px; height: 16px }
   .main { flex: 1; display: flex; justify-content: center; min-width: 0 }
-  .main svg { height: 96px; max-width: 100% }
+  .main svg { height: 96px; max-width: 100%; cursor: grab }
+  /* A drop-shadow glow, not outline: icons are sized to touch the canvas edge
+     with zero margin, so a border-box effect (outline) gets clipped by the
+     svg's own overflow:hidden viewport with nowhere left to render */
+  .active-drag { filter: drop-shadow(0 0 2px #3b82f6) drop-shadow(0 0 2px #3b82f6) }
+  .active-drag:active { cursor: grabbing }
 
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px }
 
@@ -113,8 +123,9 @@
 <script>
 let state = null                              // last /api payload
 let selected = 0                              // index of the selected template card (feeds the logo card's icon)
+let active = null                             // currently selected row/component: { kind: 'layer'|'logo'|'title', index?, role? }
 // Colors as Nextra-style hue/saturation/lightness; primary = bg, secondary = fg, accent = ac
-let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l: 34 }, ac: { h: 0, s: 0, l: 0 } }
+let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l: 34 }, ac: { h: 0, s: 0, l: 60 } }
 const comps = {}                              // cand index -> role -> tuner state (incl. ink: 'fg'|'bg'|null)
 const chosen = {}                             // cand index -> role -> icon name override
 const parts = []                              // title part -> { show, ink, weight, scale, dx, typeset }
@@ -210,8 +221,96 @@ function select(index) {
   document.querySelectorAll('.card[data-index]').forEach(el => {
     el.classList.toggle('selected', +el.dataset.index === index)
   })
+  apply()          // positions the newly-flattened icon + current title first...
+  fit_logo_width() // ...so the measurement reflects the actual new content
+  apply()          // ...then re-apply once more so rect/circle see the final width
+}
+
+function fit_logo_width() {
+  // Recompute the auto-fit canvas width from current content. Called only at
+  // settling points (template selection, initial load, regenerate) — never
+  // from apply() itself, or the canvas would visibly resize while the user is
+  // mid-drag/mid-tune. A no-op once the user has set a manual width override.
+  if (!logo.width_auto) return
+  const light_svg = document.querySelector('#logo-card .panel.light .main svg')
+  if (!light_svg) return
+  const box = light_svg.getBBox()
+  logo.width = Math.max(120, Math.ceil(box.x + box.width + 8))
+  const width_input = document.querySelector('#logo-card [data-k="width"]')
+  if (width_input) width_input.value = logo.width
+}
+
+// --- Component row selection + click-and-drag positioning on the canvas ---
+
+function select_active(row) {
+  active = row.dataset.kind === 'layer' ? { kind: 'layer', index: +row.dataset.index, role: row.dataset.selRole }
+         : row.dataset.kind === 'logo'  ? { kind: 'logo', role: row.dataset.selRole }
+         : { kind: 'title', index: +row.dataset.index }
+  document.querySelectorAll('.row.selected').forEach(r => r.classList.remove('selected'))
+  row.classList.add('selected')
   apply()
 }
+
+function row_for(desc) {
+  return desc.kind === 'layer' ? document.querySelector(`.row[data-kind="layer"][data-index="${desc.index}"][data-sel-role="${desc.role}"]`)
+       : desc.kind === 'logo'  ? document.querySelector(`.row[data-kind="logo"][data-sel-role="${desc.role}"]`)
+       : document.querySelector(`.row[data-kind="title"][data-index="${desc.index}"]`)
+}
+
+function state_for(desc) {
+  if (desc.kind === 'layer') return (comps[desc.index] || {})[desc.role]
+  if (desc.kind === 'logo') return logo[desc.role]
+  return parts[desc.index]
+}
+
+document.getElementById('grid').addEventListener('click', e => {
+  // Selection happens ONLY via the control row, never by clicking the canvas:
+  // components frequently overlap there, making click-to-select unreliable
+  const row = e.target.closest('.row')
+  if (row && row.dataset.kind) select_active(row)
+})
+
+document.getElementById('grid').addEventListener('pointerdown', e => {
+  // Dragging always targets whichever component is currently selected (via its
+  // row), regardless of what shape is actually under the pointer — hit-testing
+  // overlapping canvas shapes to pick a drag target is exactly what row-only
+  // selection is meant to avoid. A click within a card that doesn't own the
+  // active selection does nothing.
+  const main = e.target.closest('.main')
+  if (!main || !active) return
+  const card = main.closest('.card')
+  if (active.kind === 'layer' ? +card.dataset.index !== active.index : card.id !== 'logo-card') return
+
+  const comp_state = state_for(active)
+  if (!comp_state) return
+  e.preventDefault()
+
+  const row = row_for(active)
+  const svg = main.querySelector(':scope > svg')
+  if (!svg) return
+  const box = svg.getBoundingClientRect()
+  const vb = svg.viewBox.baseVal
+  const scale_x = (vb.width || 96) / box.width
+  const scale_y = (vb.height || 96) / box.height
+  const start = { x: e.clientX, y: e.clientY, dx: comp_state.dx, dy: comp_state.dy ?? 0 }
+  const dx_input = row && row.querySelector('[data-k="dx"]')
+  const dy_input = row && row.querySelector('[data-k="dy"]')
+  const clamp = (v, input) => input ? Math.max(+input.min, Math.min(+input.max, v)) : v
+
+  function move(ev) {
+    comp_state.dx = clamp(start.dx + (ev.clientX - start.x) * scale_x, dx_input)
+    if ('dy' in comp_state) comp_state.dy = clamp(start.dy + (ev.clientY - start.y) * scale_y, dy_input)
+    if (dx_input) dx_input.value = comp_state.dx
+    if (dy_input) dy_input.value = comp_state.dy
+    apply()
+  }
+  function up() {
+    document.removeEventListener('pointermove', move)
+    document.removeEventListener('pointerup', up)
+  }
+  document.addEventListener('pointermove', move)
+  document.addEventListener('pointerup', up)
+})
 
 // --- Color rows (global, Nextra-style H/S/L per slot) ---
 
@@ -337,6 +436,9 @@ function render_comp_rows(index, container) {
     const name = (chosen[index] || {})[role] || cand.icons[role]
     const row = document.createElement('div')
     row.className = 'row icon-row'
+    row.dataset.kind = 'layer'
+    row.dataset.index = index
+    row.dataset.selRole = role
     row.innerHTML = `<svg data-thumb="${role}" viewBox="0 0 16 16" class="thumb" fill="currentColor">${state.icon_bodies[name]}</svg>
       <div class="fields">
         <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
@@ -371,9 +473,11 @@ function swap_icon(el, role, name) {
 
 function render_part_rows(container) {
   state.title_parts.forEach((text, i) => {
-    const p = parts[i] || (parts[i] = { show: true, weight: 600, scale: 1, dx: 0, dy: 0, typeset: 'geometric' })
+    const p = parts[i] || (parts[i] = { show: true, weight: 600, bold: false, scale: 1, dx: 0, dy: 0, typeset: 'geometric' })
     const row = document.createElement('div')
     row.className = 'row'
+    row.dataset.kind = 'title'
+    row.dataset.index = i
     row.innerHTML = `<b>“${text}”</b>
       <div class="fields">
         <label>show <input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}></label>
@@ -383,6 +487,7 @@ function render_part_rows(container) {
         <label>weight <select data-k="weight">
           ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
         </select></label>
+        <label>bold <input type="checkbox" data-k="bold" ${p.bold ? 'checked' : ''}></label>
         <label>typeset <select data-k="typeset">
           ${Object.keys(state.typesets).map(t => `<option ${t === p.typeset ? 'selected' : ''}>${t}</option>`).join('')}
         </select></label>
@@ -422,6 +527,8 @@ function logo_card() {
 
   const flat_row = document.createElement('div')
   flat_row.className = 'row'
+  flat_row.dataset.kind = 'logo'
+  flat_row.dataset.selRole = 'flat'
   flat_row.innerHTML = `<b>icon</b>
     <div class="fields">
       <label>show <input type="checkbox" data-k="show" ${logo.flat.show ? 'checked' : ''}></label>
@@ -434,6 +541,8 @@ function logo_card() {
 
   const circle_row = document.createElement('div')
   circle_row.className = 'row'
+  circle_row.dataset.kind = 'logo'
+  circle_row.dataset.selRole = 'circle'
   circle_row.innerHTML = `<b>circle</b>
     <div class="fields">
       <label>show <input type="checkbox" data-k="show" ${logo.circle.show ? 'checked' : ''}></label>
@@ -447,6 +556,8 @@ function logo_card() {
 
   const rect_row = document.createElement('div')
   rect_row.className = 'row'
+  rect_row.dataset.kind = 'logo'
+  rect_row.dataset.selRole = 'rect'
   rect_row.innerHTML = `<b>rect</b>
     <div class="fields">
       <label>show <input type="checkbox" data-k="show" ${logo.rect.show ? 'checked' : ''}></label>
@@ -479,9 +590,15 @@ function rebuild_logo_dom() {
   const src = document.querySelector(`.card[data-index="${selected}"] .panel.light .main svg`)
   if (!logo_card_el || !src) return
 
-  const flat   = `<svg data-role="flat" x="0" y="0" width="96" height="96" viewBox="0 0 96 96">${src.innerHTML}</svg>`
-  const circle = `<circle data-role="circle" cx="48" cy="48" r="48" fill="var(--bg, #52525b)"/>`
+  // Declared (and assembled below) back-to-front: rect and circle paint first,
+  // so they sit behind the icon and title — later siblings paint on top in SVG
   const rect   = `<rect data-role="rect" x="0" y="0" width="96" height="96" rx="14" fill="var(--bg, #52525b)"/>`
+  const circle = `<circle data-role="circle" cx="48" cy="48" r="48" fill="var(--bg, #52525b)"/>`
+  // Phase 1 (which already ran) may have marked one of the source card's own
+  // layers with the active-drag highlight class — strip it so that editor-only
+  // UI state never leaks into the frozen flattened snapshot
+  const frozen = src.innerHTML.replace(/\s*class="active-drag"/g, '')
+  const flat   = `<svg data-role="flat" x="0" y="0" width="96" height="96" viewBox="0 0 96 96">${frozen}</svg>`
   // Placeholder width only: apply() immediately recomputes it from actual rendered
   // content (or the user's manual override) before anything is shown on screen
   const svg    = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${logo.width} 96">` +
@@ -507,6 +624,8 @@ function apply() {
       const size = +el.dataset.size * c.scale
       el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
                                    `${48 + c.dy - size * 48}) scale(${size * 6})`)
+      el.classList.toggle('active-drag', !!el.closest('.main') &&
+        active?.kind === 'layer' && active.index === index && active.role === el.dataset.role)
     }
   }
 
@@ -522,26 +641,32 @@ function apply() {
   rebuild_logo_dom()
   const logo_el = document.getElementById('logo-card')
 
-  for (const el of logo_el.querySelectorAll('[data-role]')) {
-    const role = el.dataset.role
-    if (role === 'title') { apply_title(el); continue }
-    if (role === 'rect' || role === 'circle') { el.style.display = 'none'; continue }
+  // Force-hide rect/circle so they can't skew the width measurement below;
+  // scoped to svg[data-role="flat"] specifically (not the generic [data-role]
+  // selector) so the flattened icon's own frozen inner layers — copied wholesale
+  // from the source template and still carrying their own data-role attributes —
+  // are never mistaken for top-level logo components
+  for (const el of logo_el.querySelectorAll('[data-role="rect"], [data-role="circle"]')) el.style.display = 'none'
+  for (const el of logo_el.querySelectorAll('[data-role="title"]')) apply_title(el)
+  for (const el of logo_el.querySelectorAll('svg[data-role="flat"]')) {
     const c = logo.flat
     el.style.display = c.show ? '' : 'none'
     const w = 96 * c.scale
     el.setAttribute('width', w); el.setAttribute('height', w)
     el.setAttribute('x', 48 + c.dx - w / 2); el.setAttribute('y', 48 + c.dy - w / 2)
+    el.classList.toggle('active-drag', active?.kind === 'logo' && active.role === 'flat')
   }
 
+  // logo.width is applied as-is here — it is NOT re-measured on every apply()
+  // cycle. Continuously re-fitting to content would visibly resize the canvas
+  // while the user drags or tunes a title/icon position; fit_logo_width()
+  // instead recomputes it only at settling points (template selection, load,
+  // regenerate), called explicitly from select().
   const light_svg = logo_el.querySelector('.panel.light .main svg')
   const dark_svg  = logo_el.querySelector('.panel.dark .main svg')
   if (light_svg && dark_svg) {
-    const box = light_svg.getBBox()
-    const w = logo.width_auto ? Math.max(120, Math.ceil(box.x + box.width + 8)) : logo.width
-    light_svg.setAttribute('viewBox', `0 0 ${w} 96`)
-    dark_svg.setAttribute('viewBox', `0 0 ${w} 96`)
-    const width_input = logo_el.querySelector('[data-k="width"]')
-    if (width_input && logo.width_auto) width_input.value = w
+    light_svg.setAttribute('viewBox', `0 0 ${logo.width} 96`)
+    dark_svg.setAttribute('viewBox', `0 0 ${logo.width} 96`)
   }
 
   for (const el of logo_el.querySelectorAll('[data-role="rect"], [data-role="circle"]')) {
@@ -561,6 +686,7 @@ function apply() {
       el.setAttribute('cy', 48 + c.dy)
       el.setAttribute('r', 48 * c.scale)
     }
+    el.classList.toggle('active-drag', active?.kind === 'logo' && active.role === role)
   }
 }
 
@@ -576,10 +702,11 @@ function apply_title(text) {
     if (!p) return
     span.style.display = p.show ? '' : 'none'
     span.setAttribute('font-family', state.typesets[p.typeset])
-    span.setAttribute('font-weight', p.weight)
+    span.setAttribute('font-weight', p.bold ? 700 : p.weight)
     span.setAttribute('font-size', 42 * p.scale)
     span.setAttribute('dx', p.dx)
     span.setAttribute('dy', p.dy)
+    span.classList.toggle('active-drag', active?.kind === 'title' && active.index === i)
   })
 }
 
