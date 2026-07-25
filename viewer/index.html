@@ -67,6 +67,9 @@
   .ink-btn[data-ink=ac] { background: var(--ac) }
 
   main { display: grid; gap: 20px; padding: 20px; max-width: 1100px; margin: 0 auto }
+  /* Section labels above the icon cards / logo card — same voice as #tuner h3 */
+  main > h3 { font-size: 12px; font-weight: 600; color: var(--pg-muted); margin: 4px 0 -8px;
+              text-transform: uppercase; letter-spacing: 0.04em }
   .card { background: var(--pg-card); border: 1px solid var(--pg-border); border-radius: 12px;
           padding: 16px; cursor: pointer }
   .card.selected { border-color: var(--pg-text); box-shadow: 0 0 0 1px var(--pg-text) }
@@ -92,10 +95,15 @@
   .favs .f16 svg { width: 16px; height: 16px }
   .main { flex: 1; display: flex; justify-content: center; min-width: 0 }
   .main svg { height: 96px; max-width: 100%; cursor: grab }
-  /* A drop-shadow glow, not outline: icons are sized to touch the canvas edge
+  /* Drop-shadow "stroke", not outline: icons are sized to touch the canvas edge
      with zero margin, so a border-box effect (outline) gets clipped by the
-     svg's own overflow:hidden viewport with nowhere left to render */
-  .active-drag { filter: drop-shadow(0 0 2px #3b82f6) drop-shadow(0 0 2px #3b82f6) }
+     svg's own overflow:hidden viewport with nowhere left to render. Stack a
+     tight near-white rim + saturated blue halo so the active layer reads clearly
+     on both light and dark panels. */
+  .active-drag { filter:
+    drop-shadow(0 0 0.75px #f8fafc) drop-shadow(0 0 0.75px #f8fafc)
+    drop-shadow(0 0 1.5px #2563eb) drop-shadow(0 0 1.5px #2563eb)
+    drop-shadow(0 0 3px #3b82f6) drop-shadow(0 0 5px #60a5fa) }
   .active-drag:active { cursor: grabbing }
 
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px }
@@ -186,11 +194,19 @@ function instance(svg, n) {
   return svg.replace(/c(\d+)-cut(\d+)/g, `c$1-cut$2-i${n}`)
 }
 
+function section_title(label) {
+  const h = document.createElement('h3')
+  h.textContent = label
+  return h
+}
+
 function render() {
   document.getElementById('seed').value = state.seed
   const grid = document.getElementById('grid')
   grid.innerHTML = ''
+  grid.appendChild(section_title('Icons'))
   state.candidates.forEach(cand => grid.appendChild(card(cand)))
+  grid.appendChild(section_title('Logo'))
   grid.appendChild(logo_card())
   select(Math.min(selected, state.candidates.length - 1))
 }
@@ -523,7 +539,7 @@ function logo_card() {
   const el = document.createElement('div')
   el.className = 'card logo'
   el.id = 'logo-card'
-  el.innerHTML = `<div class="head">logo <button class="save">Save</button></div>
+  el.innerHTML = `<div class="head"><button class="save">Save</button></div>
     <div class="panels">
       <div class="panel light"><div class="main"></div></div>
       <div class="panel dark"><div class="main"></div></div>
