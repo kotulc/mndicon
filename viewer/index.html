@@ -5,8 +5,8 @@
      on the left, that template's own layer controls (always visible, icon
      dropdown last) on the right. Clicking a template card selects it, which
      feeds its live-tuned ("flattened") icon into a trailing logo card — the
-     final icon + title, with an optional rounded-rect primitive behind them and
-     the title's per-part controls, all listed below its light/dark canvas.
+     final icon + title; rounded-rect primitives can be added on demand behind
+     or among them, with the title's per-part controls listed below the canvas.
      Mask ids are made unique per injected svg copy so cutouts render in every
      instance. Tuned SVGs are serialized on save (favicons rasterized here). -->
 <html lang="en" data-theme="dark">
@@ -44,7 +44,9 @@
   .rows { background: var(--pg-card); border: 1px solid var(--pg-border);
           border-radius: 10px; padding: 6px 14px; font-size: 13px; overflow: hidden }
   .row { display: grid; grid-template-columns: 74px 1fr; align-items: start; gap: 12px; padding: 6px 0 }
+  .row:has(> .order) { grid-template-columns: auto 74px 1fr }
   .row.icon-row { grid-template-columns: 28px 1fr }
+  .row.icon-row:has(> .order) { grid-template-columns: auto 28px 1fr }
   .row + .row { border-top: 1px solid var(--pg-border) }
   /* Extend to the container's edges via negative margin (offset by matching
      padding so content doesn't shift) so overflow:hidden on .rows clips this
@@ -65,8 +67,25 @@
   .ink-btn[data-ink=bg] { background: var(--bg) }
   .ink-btn[data-ink=fg] { background: var(--fg) }
   .ink-btn[data-ink=ac] { background: var(--ac) }
+  .row .order { display: inline-flex; gap: 2px; min-width: 46px }
+  .row .order button { width: 22px; height: 22px; padding: 0; border: 1px solid var(--pg-border);
+                       border-radius: 4px; background: var(--pg); color: var(--pg-text);
+                       font: inherit; font-size: 12px; line-height: 1; cursor: pointer }
+  .row .order button:disabled { opacity: 0.35; cursor: default }
+  .row.add-row { grid-template-columns: 1fr }
+  .row.add-row button { padding: 4px 10px; border: 1px dashed var(--pg-border); border-radius: 6px;
+                        background: transparent; color: var(--pg-muted); font: inherit;
+                        font-size: 12px; cursor: pointer; width: 100%; text-align: left }
+  .row.add-row button:hover { color: var(--pg-text); border-color: var(--pg-muted) }
+  .row .remove-prim { margin-left: auto; padding: 0 6px; border: 0; border-radius: 4px;
+                      background: transparent; color: var(--pg-muted); font: inherit;
+                      font-size: 14px; line-height: 1; cursor: pointer }
+  .row .remove-prim:hover { color: var(--pg-text) }
 
   main { display: grid; gap: 20px; padding: 20px; max-width: 1100px; margin: 0 auto }
+  /* Section labels above the icon cards / logo card — same voice as #tuner h3 */
+  main > h3 { font-size: 12px; font-weight: 600; color: var(--pg-muted); margin: 4px 0 -8px;
+              text-transform: uppercase; letter-spacing: 0.04em }
   .card { background: var(--pg-card); border: 1px solid var(--pg-border); border-radius: 12px;
           padding: 16px; cursor: pointer }
   .card.selected { border-color: var(--pg-text); box-shadow: 0 0 0 1px var(--pg-text) }
@@ -92,10 +111,15 @@
   .favs .f16 svg { width: 16px; height: 16px }
   .main { flex: 1; display: flex; justify-content: center; min-width: 0 }
   .main svg { height: 96px; max-width: 100%; cursor: grab }
-  /* A drop-shadow glow, not outline: icons are sized to touch the canvas edge
+  /* Drop-shadow "stroke", not outline: icons are sized to touch the canvas edge
      with zero margin, so a border-box effect (outline) gets clipped by the
-     svg's own overflow:hidden viewport with nowhere left to render */
-  .active-drag { filter: drop-shadow(0 0 2px #3b82f6) drop-shadow(0 0 2px #3b82f6) }
+     svg's own overflow:hidden viewport with nowhere left to render. Stack a
+     tight near-white rim + saturated blue halo so the active layer reads clearly
+     on both light and dark panels. */
+  .active-drag { filter:
+    drop-shadow(0 0 0.75px #f8fafc) drop-shadow(0 0 0.75px #f8fafc)
+    drop-shadow(0 0 1.5px #2563eb) drop-shadow(0 0 1.5px #2563eb)
+    drop-shadow(0 0 3px #3b82f6) drop-shadow(0 0 5px #60a5fa) }
   .active-drag:active { cursor: grabbing }
 
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px }
@@ -133,13 +157,15 @@ let active = null                             // currently selected row/componen
 let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l: 34 }, ac: { h: 0, s: 0, l: 60 } }
 const comps = {}                              // cand index -> role -> tuner state (incl. ink: 'fg'|'bg'|null)
 const chosen = {}                             // cand index -> role -> icon name override
+const layer_order = {}                        // cand index -> roles back-to-front (paint / control order)
 const parts = []                              // title part -> { show, ink, weight, scale, dx, typeset }
-// Logo-card-only components: the flattened selected icon plus an optional bg shape
+// Logo-card-only components: flattened selected icon + title; primitives added on demand
 const logo = {
-  flat:      { show: true, scale: 1, dx: 0, dy: 0 },
-  // Rounded rect that doubles as a circle at high rx — the only logo bg shape
-  primitive: { show: false, ink: 'bg', w: 1, h: 1, rx: 14, dx: 0, dy: 0 },
+  flat: { show: true, scale: 1, dx: 0, dy: 0 },
   width: 150, width_auto: true,  // canvas width: auto-fits icon+title until the user drags the slider
+  // Paint / control order for logo layers (back-to-front). 'title' covers all title parts.
+  // Logo primitives (lprimN) are pushed here when added via "+ primitive".
+  stack: ['flat', 'title'],
 }
 let title_markup = null                       // cached <text data-role="title">...</text>, same for every candidate
 
@@ -186,11 +212,27 @@ function instance(svg, n) {
   return svg.replace(/c(\d+)-cut(\d+)/g, `c$1-cut$2-i${n}`)
 }
 
+function section_title(label) {
+  const h = document.createElement('h3')
+  h.textContent = label
+  return h
+}
+
 function render() {
   document.getElementById('seed').value = state.seed
+  // Fresh compositions: drop any prior per-card layer order / added primitives
+  // so roles are rediscovered from the new SVGs
+  for (const k of Object.keys(layer_order)) delete layer_order[k]
+  for (const idx of Object.keys(comps)) {
+    for (const role of Object.keys(comps[idx])) {
+      if (is_prim_role(role)) delete comps[idx][role]
+    }
+  }
   const grid = document.getElementById('grid')
   grid.innerHTML = ''
+  grid.appendChild(section_title('Icons'))
   state.candidates.forEach(cand => grid.appendChild(card(cand)))
+  grid.appendChild(section_title('Logo'))
   grid.appendChild(logo_card())
   select(Math.min(selected, state.candidates.length - 1))
 }
@@ -436,6 +478,176 @@ function wire_row(row, s, handlers = {}) {
 
 // --- Per-template icon layer controls (always visible, follow their own card) ---
 
+function order_html(at_start, at_end) {
+  // ↑↓ swap this row with its neighbor in the back-to-front list (↓ = toward front)
+  return `<span class="order">
+    <button type="button" data-dir="-1" title="Move back" ${at_start ? 'disabled' : ''}>↑</button>
+    <button type="button" data-dir="1" title="Move forward" ${at_end ? 'disabled' : ''}>↓</button>
+  </span>`
+}
+
+function wire_order(row, on_move) {
+  row.querySelectorAll('.order button').forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation()
+      if (btn.disabled) return
+      on_move(+btn.dataset.dir)
+    }
+  })
+}
+
+function swap_adjacent(list, i, dir) {
+  const j = i + dir
+  if (i < 0 || j < 0 || j >= list.length) return false
+  ;[list[i], list[j]] = [list[j], list[i]]
+  return true
+}
+
+function roles_for(index, card_el) {
+  // Lazily capture the composed SVG's role order (back-to-front) once per card
+  if (!layer_order[index]) {
+    const el = card_el || document.querySelector(`.card[data-index="${index}"]`)
+    layer_order[index] = [...new Set([...el.querySelectorAll('[data-role]')].map(n => n.dataset.role))]
+  }
+  return layer_order[index]
+}
+
+function stack_node_for(svg, role) {
+  // The body node whose sibling order controls paint order for this role.
+  // Cut layers live inside <mask> defs — their visual effect is on the
+  // [data-masked-by] wrapper, so that wrapper is the stack unit (shared with
+  // the painted target role inside it).
+  const el = svg.querySelector(`[data-role="${role}"]`)
+  if (!el) return null
+  const mask = el.closest('mask')
+  if (mask) return svg.querySelector(`[data-masked-by="${mask.id}"]`)
+  return el.closest('[data-masked-by]') || el
+}
+
+function reorder_icon_dom(index) {
+  // Re-append unique stack nodes in layer_order so SVG paint matches controls
+  const order = roles_for(index)
+  const card = document.querySelector(`.card[data-index="${index}"]`)
+  for (const svg of card.querySelectorAll('.canvas svg')) {
+    const seen = new Set()
+    for (const role of order) {
+      const node = stack_node_for(svg, role)
+      if (node && node.parentNode === svg && !seen.has(node)) {
+        seen.add(node)
+        svg.appendChild(node)
+      }
+    }
+  }
+}
+
+function is_prim_role(role) {
+  return /^iprim\d+$/.test(role)
+}
+
+function is_logo_prim_role(role) {
+  return /^lprim\d+$/.test(role)
+}
+
+function prim_markup(role) {
+  // Rounded rect that doubles as a circle at high rx; role is unique per add
+  return `<rect data-role="${role}" x="0" y="0" width="96" height="96" rx="14" fill="var(--bg, #52525b)"/>`
+}
+
+function next_prim_role(index) {
+  const used = new Set(roles_for(index))
+  let n = 0
+  while (used.has(`iprim${n}`)) n++
+  return `iprim${n}`
+}
+
+function inject_icon_primitive(index, role) {
+  const card = document.querySelector(`.card[data-index="${index}"]`)
+  const html = prim_markup(role)
+  for (const svg of card.querySelectorAll('.canvas svg')) {
+    svg.insertAdjacentHTML('beforeend', html)
+  }
+}
+
+function add_icon_primitive(index) {
+  const role = next_prim_role(index)
+  const order = roles_for(index)
+  order.push(role)  // new primitives paint on top (end of back-to-front list)
+  const c = comps[index] || (comps[index] = {})
+  c[role] = { show: true, ink: 'bg', w: 1, h: 1, rx: 14, dx: 0, dy: 0 }
+  inject_icon_primitive(index, role)
+  const container = document.querySelector(`.card[data-index="${index}"] .controls .rows`)
+  render_comp_rows(index, container)
+  const row = container.querySelector(`.row[data-sel-role="${role}"]`)
+  if (row) select_active(row)
+  else apply()
+}
+
+function remove_icon_primitive(index, role) {
+  const order = roles_for(index)
+  const i = order.indexOf(role)
+  if (i >= 0) order.splice(i, 1)
+  if (comps[index]) delete comps[index][role]
+  const card = document.querySelector(`.card[data-index="${index}"]`)
+  card.querySelectorAll(`[data-role="${role}"]`).forEach(el => el.remove())
+  if (active?.kind === 'layer' && active.index === index && active.role === role) deselect()
+  const container = card.querySelector('.controls .rows')
+  render_comp_rows(index, container)
+  apply()
+}
+
+function apply_icon_primitive(el, c, index, role) {
+  // Icon canvas is always 96×96; w/h are fractions of that edge (same as logo prim)
+  el.style.display = c.show ? '' : 'none'
+  if (c.ink) el.setAttribute('fill', ink_css(c.ink))
+  const w = 96 * c.w, h = 96 * c.h
+  el.setAttribute('width', w); el.setAttribute('height', h)
+  el.setAttribute('x', (96 - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
+  el.setAttribute('rx', c.rx)
+  el.classList.toggle('active-drag', !!el.closest('.main') &&
+    active?.kind === 'layer' && active.index === index && active.role === role)
+}
+
+function render_prim_row(index, role, ri, roles, container) {
+  const bag = comps[index] || (comps[index] = {})
+  if (!bag[role]) bag[role] = { show: true, ink: 'bg', w: 1, h: 1, rx: 14, dx: 0, dy: 0 }
+  const c = bag[role]
+  const row = document.createElement('div')
+  row.className = 'row icon-row'
+  row.dataset.kind = 'layer'
+  row.dataset.index = index
+  row.dataset.selRole = role
+  row.innerHTML = `${order_html(ri === 0, ri === roles.length - 1)}
+    <svg class="thumb" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <rect x="1.5" y="1.5" width="13" height="13" rx="3"/>
+    </svg>
+    <div class="fields">
+      <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
+      <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${c.w}"></label>
+      <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${c.h}"></label>
+      ${ink_html()}
+      <label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>
+      <button type="button" class="remove-prim" title="Remove primitive">×</button>
+    </div>`
+  wire_row(row, c)
+  wire_order(row, dir => move_icon_layer(index, role, dir))
+  row.querySelector('.remove-prim').onclick = e => {
+    e.stopPropagation()
+    remove_icon_primitive(index, role)
+  }
+  container.appendChild(row)
+}
+
+function move_icon_layer(index, role, dir) {
+  const order = roles_for(index)
+  if (!swap_adjacent(order, order.indexOf(role), dir)) return
+  reorder_icon_dom(index)
+  const container = document.querySelector(`.card[data-index="${index}"] .controls .rows`)
+  render_comp_rows(index, container)
+  const row = container.querySelector(`.row[data-sel-role="${role}"]`)
+  if (row) select_active(row)
+  else apply()
+}
+
 function comp_state(index, role, init) {
   const c = comps[index] || (comps[index] = {})
   if (!c[role]) c[role] = { show: true, ink: 'bg', scale: 1, dx: 0, dy: 0, ...init }
@@ -443,15 +655,18 @@ function comp_state(index, role, init) {
 }
 
 function render_comp_rows(index, container) {
-  // Roles are discovered from the composed SVG itself, in document order (which
-  // matches the template's own layer order) — never a hardcoded list, so adding,
-  // removing, or renaming roles in icons.js/templates.js needs no viewer change
+  // Roles follow layer_order (initially the composed SVG's document order) —
+  // never a hardcoded list, so adding/removing/renaming roles needs no viewer change
   const cand = state.candidates[index]
   const card_el = container.closest('.card')
-  const roles = [...new Set([...card_el.querySelectorAll('[data-role]')].map(n => n.dataset.role))]
+  const roles = roles_for(index, card_el)
   container.innerHTML = ''
 
-  for (const role of roles) {
+  roles.forEach((role, ri) => {
+    if (is_prim_role(role)) {
+      render_prim_row(index, role, ri, roles, container)
+      return
+    }
     // A cut (subtractive mask) layer has no fill of its own (raw #000 inside its
     // <mask>) and gets no color control; painted layers carry fill="var(--fg/bg)"
     const fill = card_el.querySelector(`[data-role="${role}"]`).getAttribute('fill') || ''
@@ -463,7 +678,8 @@ function render_comp_rows(index, container) {
     row.dataset.kind = 'layer'
     row.dataset.index = index
     row.dataset.selRole = role
-    row.innerHTML = `<svg data-thumb="${role}" viewBox="0 0 16 16" class="thumb" fill="currentColor">${state.icon_bodies[name]}</svg>
+    row.innerHTML = `${order_html(ri === 0, ri === roles.length - 1)}
+      <svg data-thumb="${role}" viewBox="0 0 16 16" class="thumb" fill="currentColor">${state.icon_bodies[name]}</svg>
       <div class="fields">
         <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
         <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
@@ -473,8 +689,18 @@ function render_comp_rows(index, container) {
         ${paintable ? ink_html() : ''}
       </div>`
     wire_row(row, c, { icon: name => set_icon(index, role, name) })
+    wire_order(row, dir => move_icon_layer(index, role, dir))
     container.appendChild(row)
+  })
+
+  const add = document.createElement('div')
+  add.className = 'row add-row'
+  add.innerHTML = `<button type="button">+ primitive</button>`
+  add.querySelector('button').onclick = e => {
+    e.stopPropagation()
+    add_icon_primitive(index)
   }
+  container.appendChild(add)
 }
 
 function set_icon(index, role, name) {
@@ -493,14 +719,19 @@ function swap_icon(el, role, name) {
 
 // --- Title part controls ---
 
-function render_part_rows(container) {
+function render_part_rows(container, stack_index, stack_len) {
   state.title_parts.forEach((text, i) => {
     const p = parts[i] || (parts[i] = { show: true, weight: 600, bold: false, scale: 1, dx: 0, dy: 0, typeset: 'geometric' })
     const row = document.createElement('div')
     row.className = 'row'
     row.dataset.kind = 'title'
     row.dataset.index = i
-    row.innerHTML = `<b>“${text}”</b>
+    // Stack ↑↓ only on the first title part — moves the whole title in logo.stack
+    const stack_btns = i === 0
+      ? order_html(stack_index === 0, stack_index === stack_len - 1)
+      : `<span class="order" aria-hidden="true"></span>`
+    row.innerHTML = `${stack_btns}
+      <b>“${text}”</b>
       <div class="fields">
         <label>show <input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}></label>
         <label>size <input type="range" data-k="scale" min="0.4" max="1.6" step="0.05" value="${p.scale}"></label>
@@ -513,25 +744,57 @@ function render_part_rows(container) {
         </select></label>
       </div>`
     wire_row(row, p, { typeset: t => { p.typeset = t; apply() } })
+    if (i === 0) wire_order(row, dir => move_logo_layer('title', dir))
     container.appendChild(row)
   })
 }
 
 // --- Logo card: flattened selected icon + optional bg shapes + title, all controls below ---
 
-function logo_card() {
-  const el = document.createElement('div')
-  el.className = 'card logo'
-  el.id = 'logo-card'
-  el.innerHTML = `<div class="head">logo <button class="save">Save</button></div>
-    <div class="panels">
-      <div class="panel light"><div class="main"></div></div>
-      <div class="panel dark"><div class="main"></div></div>
-    </div>
-    <div class="rows"></div>`
-  el.querySelector('.save').onclick = save_logo
+function next_logo_prim_role() {
+  let n = 0
+  while (logo.stack.includes(`lprim${n}`)) n++
+  return `lprim${n}`
+}
 
-  const rows = el.querySelector('.rows')
+function add_logo_primitive() {
+  const role = next_logo_prim_role()
+  logo[role] = { show: true, ink: 'bg', w: 1, h: 1, rx: 14, dx: 0, dy: 0 }
+  logo.stack.push(role)  // new primitives paint on top
+  const rows = document.querySelector('#logo-card .rows')
+  render_logo_rows(rows)
+  const row = rows.querySelector(`.row[data-kind="logo"][data-sel-role="${role}"]`)
+  if (row) select_active(row)
+  else apply()
+}
+
+function remove_logo_primitive(role) {
+  const i = logo.stack.indexOf(role)
+  if (i >= 0) logo.stack.splice(i, 1)
+  delete logo[role]
+  if (active?.kind === 'logo' && active.role === role) deselect()
+  const rows = document.querySelector('#logo-card .rows')
+  render_logo_rows(rows)
+  apply()
+}
+
+function move_logo_layer(key, dir) {
+  if (!swap_adjacent(logo.stack, logo.stack.indexOf(key), dir)) return
+  const rows = document.querySelector('#logo-card .rows')
+  render_logo_rows(rows)
+  // Reselect the moved layer's row
+  const row = key === 'title'
+    ? rows.querySelector('.row[data-kind="title"]')
+    : rows.querySelector(`.row[data-kind="logo"][data-sel-role="${key}"]`)
+  if (row) select_active(row)
+  else apply()
+}
+
+function render_logo_rows(rows) {
+  // Canvas width stays pinned first; visual layers follow logo.stack (back-to-front)
+  const keep_active = active && (active.kind === 'logo' || active.kind === 'title') ? { ...active } : null
+  rows.innerHTML = ''
+
   const width_row = document.createElement('div')
   width_row.className = 'row'
   width_row.innerHTML = `<b>canvas</b>
@@ -545,34 +808,74 @@ function logo_card() {
   }
   rows.appendChild(width_row)
 
-  const flat_row = document.createElement('div')
-  flat_row.className = 'row'
-  flat_row.dataset.kind = 'logo'
-  flat_row.dataset.selRole = 'flat'
-  flat_row.innerHTML = `<b>icon</b>
-    <div class="fields">
-      <label>show <input type="checkbox" data-k="show" ${logo.flat.show ? 'checked' : ''}></label>
-      <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.flat.scale}"></label>
-    </div>`
-  wire_row(flat_row, logo.flat)
-  rows.appendChild(flat_row)
+  logo.stack.forEach((key, si) => {
+    if (key === 'title') {
+      render_part_rows(rows, si, logo.stack.length)
+      return
+    }
+    const c = logo[key]
+    const row = document.createElement('div')
+    row.className = 'row'
+    row.dataset.kind = 'logo'
+    row.dataset.selRole = key
+    if (key === 'flat') {
+      row.innerHTML = `${order_html(si === 0, si === logo.stack.length - 1)}
+        <b>icon</b>
+        <div class="fields">
+          <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
+          <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
+        </div>`
+    } else if (is_logo_prim_role(key)) {
+      row.innerHTML = `${order_html(si === 0, si === logo.stack.length - 1)}
+        <b>primitive</b>
+        <div class="fields">
+          <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
+          <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${c.w}"></label>
+          <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${c.h}"></label>
+          ${ink_html()}
+          <label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>
+          <button type="button" class="remove-prim" title="Remove primitive">×</button>
+        </div>`
+    }
+    wire_row(row, c)
+    wire_order(row, dir => move_logo_layer(key, dir))
+    const remove = row.querySelector('.remove-prim')
+    if (remove) remove.onclick = e => {
+      e.stopPropagation()
+      remove_logo_primitive(key)
+    }
+    rows.appendChild(row)
+  })
 
-  const prim_row = document.createElement('div')
-  prim_row.className = 'row'
-  prim_row.dataset.kind = 'logo'
-  prim_row.dataset.selRole = 'primitive'
-  prim_row.innerHTML = `<b>primitive</b>
-    <div class="fields">
-      <label>show <input type="checkbox" data-k="show" ${logo.primitive.show ? 'checked' : ''}></label>
-      <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${logo.primitive.w}"></label>
-      <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${logo.primitive.h}"></label>
-      ${ink_html()}
-      <label>round <input type="range" data-k="rx" min="0" max="48" value="${logo.primitive.rx}"></label>
-    </div>`
-  wire_row(prim_row, logo.primitive)
-  rows.appendChild(prim_row)
+  const add = document.createElement('div')
+  add.className = 'row add-row'
+  add.innerHTML = `<button type="button">+ primitive</button>`
+  add.querySelector('button').onclick = e => {
+    e.stopPropagation()
+    add_logo_primitive()
+  }
+  rows.appendChild(add)
 
-  render_part_rows(rows)
+  if (keep_active) {
+    const row = keep_active.kind === 'title'
+      ? rows.querySelector(`.row[data-kind="title"][data-index="${keep_active.index}"]`)
+      : rows.querySelector(`.row[data-kind="logo"][data-sel-role="${keep_active.role}"]`)
+    if (row) row.classList.add('selected')
+  }
+}
+
+function logo_card() {
+  const el = document.createElement('div')
+  el.className = 'card logo'
+  el.id = 'logo-card'
+  el.innerHTML = `<div class="head"><button class="save">Save</button></div>
+    <div class="panels">
+      <div class="panel light"><div class="main"></div></div>
+      <div class="panel dark"><div class="main"></div></div>
+    </div>
+    <div class="rows"></div>`
+  el.querySelector('.save').onclick = save_logo
+  render_logo_rows(el.querySelector('.rows'))
   return el
 }
 
@@ -591,18 +894,21 @@ function rebuild_logo_dom() {
   const src = document.querySelector(`.card[data-index="${selected}"] .panel.light .main svg`)
   if (!logo_card_el || !src) return
 
-  // Declared (and assembled below) back-to-front: primitive paints first so it
-  // sits behind the icon and title — later siblings paint on top in SVG
-  const prim = `<rect data-role="primitive" x="0" y="0" width="96" height="96" rx="14" fill="var(--bg, #52525b)"/>`
-  // Phase 1 (which already ran) may have marked one of the source card's own
-  // layers with the active-drag highlight class — strip it so that editor-only
-  // UI state never leaks into the frozen flattened snapshot
+  // Pieces assembled in logo.stack order (back-to-front)
   const frozen = src.innerHTML.replace(/\s*class="active-drag"/g, '')
-  const flat   = `<svg data-role="flat" x="0" y="0" width="96" height="96" viewBox="0 0 96 96">${frozen}</svg>`
+  const pieces = {
+    // Phase 1 may have marked a source layer with active-drag — strip it so
+    // editor-only UI state never leaks into the frozen flattened snapshot
+    flat: `<svg data-role="flat" x="0" y="0" width="96" height="96" viewBox="0 0 96 96">${frozen}</svg>`,
+    title: extract_title(),
+  }
+  for (const key of logo.stack) {
+    if (is_logo_prim_role(key)) pieces[key] = prim_markup(key)
+  }
   // Placeholder width only: apply() immediately recomputes it from actual rendered
   // content (or the user's manual override) before anything is shown on screen
-  const svg    = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${logo.width} 96">` +
-                 `${prim}${flat}${extract_title()}</svg>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${logo.width} 96">` +
+              `${logo.stack.map(k => pieces[k]).join('')}</svg>`
 
   logo_card_el.querySelector('.panel.light .main').innerHTML = instance(svg, 100)
   logo_card_el.querySelector('.panel.dark .main').innerHTML = instance(svg, 101)
@@ -617,8 +923,14 @@ function apply() {
   for (const card of document.querySelectorAll('.card[data-index]')) {
     const index = +card.dataset.index
     for (const el of card.querySelectorAll('[data-role]')) {
-      const c = (comps[index] || {})[el.dataset.role]
+      const role = el.dataset.role
+      const c = (comps[index] || {})[role]
       if (!c) continue
+
+      if (is_prim_role(role)) {
+        apply_icon_primitive(el, c, index, role)
+        continue
+      }
 
       const mask_el = el.closest('mask')
       if (mask_el) {
@@ -642,28 +954,25 @@ function apply() {
       el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
                                    `${48 + c.dy - size * 48}) scale(${size * 6})`)
       el.classList.toggle('active-drag', !!el.closest('.main') &&
-        active?.kind === 'layer' && active.index === index && active.role === el.dataset.role)
+        active?.kind === 'layer' && active.index === index && active.role === role)
     }
   }
 
   // Phase 2: rebuild the logo card from the now-current selection, then tune
-  // its own components in three passes, because primitive sizing needs the
+  // its own components in three passes, because logo-primitive sizing needs the
   // FINAL canvas width and that width (in auto mode) is measured from the
   // already-tuned icon+title — so it can't all happen in one pass:
   //   1. title + flat icon (their geometry never depends on canvas width);
-  //      the primitive is force-hidden here so it can't skew the measurement
+  //      logo primitives are force-hidden here so they can't skew the measurement
   //   2. measure the tuned content and fix the canvas width (auto-fit or the
   //      user's manual override), sized generously enough that nothing clips
-  //   3. primitive, whose width-relative sizing can now read a true value
+  //   3. logo primitives, whose width-relative sizing can now read a true value
   rebuild_logo_dom()
   const logo_el = document.getElementById('logo-card')
 
-  // Force-hide the primitive so it can't skew the width measurement below;
-  // scoped to svg[data-role="flat"] specifically (not the generic [data-role]
-  // selector) so the flattened icon's own frozen inner layers — copied wholesale
-  // from the source template and still carrying their own data-role attributes —
-  // are never mistaken for top-level logo components
-  for (const el of logo_el.querySelectorAll('[data-role="primitive"]')) el.style.display = 'none'
+  // Force-hide logo lprim* so they can't skew the width measurement below;
+  // top-level only — iprim* inside the flattened icon keep phase-1 geometry
+  for (const el of logo_el.querySelectorAll('.main > svg > [data-role^="lprim"]')) el.style.display = 'none'
   for (const el of logo_el.querySelectorAll('[data-role="title"]')) apply_title(el)
   for (const el of logo_el.querySelectorAll('svg[data-role="flat"]')) {
     const c = logo.flat
@@ -686,8 +995,9 @@ function apply() {
     dark_svg.setAttribute('viewBox', `0 0 ${logo.width} 96`)
   }
 
-  for (const el of logo_el.querySelectorAll('[data-role="primitive"]')) {
-    const c = logo.primitive
+  for (const el of logo_el.querySelectorAll('.main > svg > [data-role^="lprim"]')) {
+    const c = logo[el.dataset.role]
+    if (!c) continue
     el.style.display = c.show ? '' : 'none'
     if (c.ink) el.setAttribute('fill', ink_css(c.ink))
     const vbw = el.ownerSVGElement.viewBox.baseVal.width
@@ -695,7 +1005,7 @@ function apply() {
     el.setAttribute('width', w); el.setAttribute('height', h)
     el.setAttribute('x', (vbw - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
     el.setAttribute('rx', c.rx)
-    el.classList.toggle('active-drag', active?.kind === 'logo' && active.role === 'primitive')
+    el.classList.toggle('active-drag', active?.kind === 'logo' && active.role === el.dataset.role)
   }
 }
 
