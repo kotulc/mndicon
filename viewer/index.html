@@ -5,8 +5,8 @@
      on the left, that template's own layer controls (always visible, icon
      dropdown last) on the right. Clicking a template card selects it, which
      feeds its live-tuned ("flattened") icon into a trailing logo card — the
-     final icon + title, with optional rect/circle background shapes and the
-     title's per-part controls, all listed below its light/dark canvas.
+     final icon + title, with an optional rounded-rect primitive behind them and
+     the title's per-part controls, all listed below its light/dark canvas.
      Mask ids are made unique per injected svg copy so cutouts render in every
      instance. Tuned SVGs are serialized on save (favicons rasterized here). -->
 <html lang="en" data-theme="dark">
@@ -134,11 +134,11 @@ let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l
 const comps = {}                              // cand index -> role -> tuner state (incl. ink: 'fg'|'bg'|null)
 const chosen = {}                             // cand index -> role -> icon name override
 const parts = []                              // title part -> { show, ink, weight, scale, dx, typeset }
-// Logo-card-only components: the flattened selected icon plus optional bg shapes
+// Logo-card-only components: the flattened selected icon plus an optional bg shape
 const logo = {
-  flat:   { show: true, scale: 1, dx: 0, dy: 0 },
-  rect:   { show: false, ink: 'bg', w: 1, h: 1, rx: 14, dx: 0, dy: 0 },
-  circle: { show: false, ink: 'bg', scale: 1, dx: 0, dy: 0 },
+  flat:      { show: true, scale: 1, dx: 0, dy: 0 },
+  // Rounded rect that doubles as a circle at high rx — the only logo bg shape
+  primitive: { show: false, ink: 'bg', w: 1, h: 1, rx: 14, dx: 0, dy: 0 },
   width: 150, width_auto: true,  // canvas width: auto-fits icon+title until the user drags the slider
 }
 let title_markup = null                       // cached <text data-role="title">...</text>, same for every candidate
@@ -228,7 +228,7 @@ function select(index) {
   })
   apply()          // positions the newly-flattened icon + current title first...
   fit_logo_width() // ...so the measurement reflects the actual new content
-  apply()          // ...then re-apply once more so rect/circle see the final width
+  apply()          // ...then re-apply once more so the primitive sees the final width
 }
 
 function fit_logo_width() {
@@ -312,7 +312,7 @@ document.getElementById('grid').addEventListener('pointerdown', e => {
   const scale_y = (vb.height || 96) / box.height
   const start = { x: e.clientX, y: e.clientY, dx: comp_state.dx, dy: comp_state.dy ?? 0 }
   // Same bounds the now-removed x/y sliders used to enforce, per component kind.
-  // Everything in the logo card (icon, title, rect, circle) sits on the logo's
+  // Everything in the logo card (icon, title, primitive) sits on the logo's
   // own canvas, which is often much wider than 96 units — their horizontal
   // range scales with its actual width, or they'd be stuck unable to reach
   // anywhere near its edges (vertical range stays fixed: canvas height is
@@ -557,33 +557,20 @@ function logo_card() {
   wire_row(flat_row, logo.flat)
   rows.appendChild(flat_row)
 
-  const circle_row = document.createElement('div')
-  circle_row.className = 'row'
-  circle_row.dataset.kind = 'logo'
-  circle_row.dataset.selRole = 'circle'
-  circle_row.innerHTML = `<b>circle</b>
+  const prim_row = document.createElement('div')
+  prim_row.className = 'row'
+  prim_row.dataset.kind = 'logo'
+  prim_row.dataset.selRole = 'primitive'
+  prim_row.innerHTML = `<b>primitive</b>
     <div class="fields">
-      <label>show <input type="checkbox" data-k="show" ${logo.circle.show ? 'checked' : ''}></label>
-      <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${logo.circle.scale}"></label>
+      <label>show <input type="checkbox" data-k="show" ${logo.primitive.show ? 'checked' : ''}></label>
+      <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${logo.primitive.w}"></label>
+      <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${logo.primitive.h}"></label>
       ${ink_html()}
+      <label>round <input type="range" data-k="rx" min="0" max="48" value="${logo.primitive.rx}"></label>
     </div>`
-  wire_row(circle_row, logo.circle)
-  rows.appendChild(circle_row)
-
-  const rect_row = document.createElement('div')
-  rect_row.className = 'row'
-  rect_row.dataset.kind = 'logo'
-  rect_row.dataset.selRole = 'rect'
-  rect_row.innerHTML = `<b>rect</b>
-    <div class="fields">
-      <label>show <input type="checkbox" data-k="show" ${logo.rect.show ? 'checked' : ''}></label>
-      <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${logo.rect.w}"></label>
-      <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${logo.rect.h}"></label>
-      ${ink_html()}
-      <label>round <input type="range" data-k="rx" min="0" max="48" value="${logo.rect.rx}"></label>
-    </div>`
-  wire_row(rect_row, logo.rect)
-  rows.appendChild(rect_row)
+  wire_row(prim_row, logo.primitive)
+  rows.appendChild(prim_row)
 
   render_part_rows(rows)
   return el
@@ -604,10 +591,9 @@ function rebuild_logo_dom() {
   const src = document.querySelector(`.card[data-index="${selected}"] .panel.light .main svg`)
   if (!logo_card_el || !src) return
 
-  // Declared (and assembled below) back-to-front: rect and circle paint first,
-  // so they sit behind the icon and title — later siblings paint on top in SVG
-  const rect   = `<rect data-role="rect" x="0" y="0" width="96" height="96" rx="14" fill="var(--bg, #52525b)"/>`
-  const circle = `<circle data-role="circle" cx="48" cy="48" r="48" fill="var(--bg, #52525b)"/>`
+  // Declared (and assembled below) back-to-front: primitive paints first so it
+  // sits behind the icon and title — later siblings paint on top in SVG
+  const prim = `<rect data-role="primitive" x="0" y="0" width="96" height="96" rx="14" fill="var(--bg, #52525b)"/>`
   // Phase 1 (which already ran) may have marked one of the source card's own
   // layers with the active-drag highlight class — strip it so that editor-only
   // UI state never leaks into the frozen flattened snapshot
@@ -616,7 +602,7 @@ function rebuild_logo_dom() {
   // Placeholder width only: apply() immediately recomputes it from actual rendered
   // content (or the user's manual override) before anything is shown on screen
   const svg    = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${logo.width} 96">` +
-                 `${rect}${circle}${flat}${extract_title()}</svg>`
+                 `${prim}${flat}${extract_title()}</svg>`
 
   logo_card_el.querySelector('.panel.light .main').innerHTML = instance(svg, 100)
   logo_card_el.querySelector('.panel.dark .main').innerHTML = instance(svg, 101)
@@ -661,23 +647,23 @@ function apply() {
   }
 
   // Phase 2: rebuild the logo card from the now-current selection, then tune
-  // its own components in three passes, because rect/circle sizing needs the
+  // its own components in three passes, because primitive sizing needs the
   // FINAL canvas width and that width (in auto mode) is measured from the
   // already-tuned icon+title — so it can't all happen in one pass:
   //   1. title + flat icon (their geometry never depends on canvas width);
-  //      rect/circle are force-hidden here so they can't skew the measurement
+  //      the primitive is force-hidden here so it can't skew the measurement
   //   2. measure the tuned content and fix the canvas width (auto-fit or the
   //      user's manual override), sized generously enough that nothing clips
-  //   3. rect/circle, whose width-relative sizing can now read a true value
+  //   3. primitive, whose width-relative sizing can now read a true value
   rebuild_logo_dom()
   const logo_el = document.getElementById('logo-card')
 
-  // Force-hide rect/circle so they can't skew the width measurement below;
+  // Force-hide the primitive so it can't skew the width measurement below;
   // scoped to svg[data-role="flat"] specifically (not the generic [data-role]
   // selector) so the flattened icon's own frozen inner layers — copied wholesale
   // from the source template and still carrying their own data-role attributes —
   // are never mistaken for top-level logo components
-  for (const el of logo_el.querySelectorAll('[data-role="rect"], [data-role="circle"]')) el.style.display = 'none'
+  for (const el of logo_el.querySelectorAll('[data-role="primitive"]')) el.style.display = 'none'
   for (const el of logo_el.querySelectorAll('[data-role="title"]')) apply_title(el)
   for (const el of logo_el.querySelectorAll('svg[data-role="flat"]')) {
     const c = logo.flat
@@ -700,27 +686,16 @@ function apply() {
     dark_svg.setAttribute('viewBox', `0 0 ${logo.width} 96`)
   }
 
-  for (const el of logo_el.querySelectorAll('[data-role="rect"], [data-role="circle"]')) {
-    const role = el.dataset.role
-    const c = logo[role]
+  for (const el of logo_el.querySelectorAll('[data-role="primitive"]')) {
+    const c = logo.primitive
     el.style.display = c.show ? '' : 'none'
     if (c.ink) el.setAttribute('fill', ink_css(c.ink))
     const vbw = el.ownerSVGElement.viewBox.baseVal.width
-
-    if (role === 'rect') {
-      const w = vbw * c.w, h = 96 * c.h
-      el.setAttribute('width', w); el.setAttribute('height', h)
-      el.setAttribute('x', (vbw - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
-      el.setAttribute('rx', c.rx)
-    } else {
-      el.setAttribute('cx', vbw / 2 + c.dx)
-      el.setAttribute('cy', 48 + c.dy)
-      // Radius relative to canvas WIDTH (matching rect's own w/h), not a fixed
-      // 48 (half the 96-tall canvas) — otherwise the circle could never span
-      // more than ~168 units even on a logo canvas hundreds of units wide
-      el.setAttribute('r', (vbw * c.scale) / 2)
-    }
-    el.classList.toggle('active-drag', active?.kind === 'logo' && active.role === role)
+    const w = vbw * c.w, h = 96 * c.h
+    el.setAttribute('width', w); el.setAttribute('height', h)
+    el.setAttribute('x', (vbw - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
+    el.setAttribute('rx', c.rx)
+    el.classList.toggle('active-drag', active?.kind === 'logo' && active.role === 'primitive')
   }
 }
 

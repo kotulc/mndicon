@@ -2,9 +2,9 @@
  * Declarative composition templates for mndicon.
  * A template is an ordered list of layers drawn back-to-front on the 96x96
  * canvas; every template keeps a solid icon backing beneath foreground ink so
- * a single color set reads on light and dark pages alike. Background shapes
- * (rect/circle) are not part of templates — they are logo-level decorations
- * the viewer optionally places behind the flattened icon and title.
+ * a single color set reads on light and dark pages alike. The logo-level
+ * primitive (rounded rect / circle via high roundness) is not part of
+ * templates — the viewer optionally places it behind the flattened icon and title.
  *   role  icon pool that fills the slot: 'frame' | 'solid' | 'fore'
  *   dx    absolute horizontal offset from center in canvas pixels; only the
  *         icons are randomized, never positions; layers stay vertically centered
