@@ -45,6 +45,7 @@
           border-radius: 10px; padding: 6px 14px; font-size: 13px; overflow: hidden }
   .row { display: grid; grid-template-columns: 74px 1fr; align-items: start; gap: 12px; padding: 6px 0 }
   .row:has(> .order) { grid-template-columns: auto 74px 1fr }
+  .row:has(> .title-text) { grid-template-columns: auto minmax(72px, 110px) 1fr }
   .row.icon-row { grid-template-columns: 28px 1fr }
   .row.icon-row:has(> .order) { grid-template-columns: auto 28px 1fr }
   .row + .row { border-top: 1px solid var(--pg-border) }
@@ -55,6 +56,11 @@
                   margin-left: -14px; margin-right: -14px; padding-left: 14px; padding-right: 14px }
   .row b { font-weight: 600; color: var(--pg-text) }
   .row .thumb { width: 22px; height: 22px; color: var(--pg-text) }
+  .row.cut-row .thumb { color: var(--pg-muted); outline: 1px dashed var(--pg-muted); outline-offset: 2px }
+  .cut-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+               color: var(--pg-muted); border: 1px dashed var(--pg-border); border-radius: 4px;
+               padding: 2px 6px; flex-shrink: 0 }
+  .cut-hint { color: var(--pg-muted); font-size: 12px; font-style: italic }
   .row .fields { display: flex; flex-wrap: wrap; align-items: center; gap: 12px }
   .row label { display: flex; align-items: center; gap: 5px; color: var(--pg-muted) }
   .row input[type=range] { width: 84px }
@@ -67,6 +73,19 @@
   .ink-btn[data-ink=bg] { background: var(--bg) }
   .ink-btn[data-ink=fg] { background: var(--fg) }
   .ink-btn[data-ink=ac] { background: var(--ac) }
+  .ink-btn.ink-default { background: var(--pg-card); color: var(--pg-text);
+                         font-size: 10px; font-weight: 700; line-height: 14px; text-align: center }
+  .ink-btn.ink-default::before { content: "A" }
+  .row input[type=text].title-text { width: 88px; padding: 2px 6px; font: inherit;
+                                     background: var(--pg); color: var(--pg-text);
+                                     border: 1px solid var(--pg-border); border-radius: 4px }
+  .row input[type=color].title-color { width: 28px; height: 22px; padding: 0; border: 1px solid var(--pg-border);
+                                       border-radius: 4px; background: transparent; cursor: pointer }
+  .row .color-default { width: 22px; height: 22px; padding: 0; border: 2px solid var(--pg-border);
+                        border-radius: 4px; background: var(--pg-card); color: var(--pg-text);
+                        font: inherit; font-size: 10px; font-weight: 700; line-height: 18px;
+                        text-align: center; cursor: pointer }
+  .row .color-default.active { border-color: var(--pg-text) }
   .row .order { display: inline-flex; gap: 2px; min-width: 46px }
   .row .order button { width: 22px; height: 22px; padding: 0; border: 1px solid var(--pg-border);
                        border-radius: 4px; background: var(--pg); color: var(--pg-text);
@@ -158,16 +177,18 @@ let current = { scheme: 'grey', fg: { h: 0, s: 0, l: 98 }, bg: { h: 240, s: 5, l
 const comps = {}                              // cand index -> role -> tuner state (incl. ink: 'fg'|'bg'|null)
 const chosen = {}                             // cand index -> role -> icon name override
 const layer_order = {}                        // cand index -> roles back-to-front (paint / control order)
-const parts = []                              // title part -> { show, ink, weight, scale, dx, typeset }
-// Logo-card-only components: flattened selected icon + title; primitives added on demand
+const parts = []                              // text part -> { show, color, weight, scale, dx, typeset }
+let title_texts = null                        // mutable text strings; null until first logo render
+let title_laid_out = false                    // one-time real-width layout of initial text parts done?
+// Logo-card-only components: flattened selected icon + text parts; primitives added on demand
 const logo = {
   flat: { show: true, scale: 1, dx: 0, dy: 0 },
-  width: 150, width_auto: true,  // canvas width: auto-fits icon+title until the user drags the slider
-  // Paint / control order for logo layers (back-to-front). 'title' covers all title parts.
-  // Logo primitives (lprimN) are pushed here when added via "+ primitive".
-  stack: ['flat', 'title'],
+  width: 150, width_auto: true,  // canvas width: auto-fits icon+text until the user drags the slider
+  // Paint / control order (back-to-front). textN = independent text parts; lprimN = primitives.
+  // textN keys are inserted by ensure_title_state() from the composed title parts.
+  stack: ['flat'],
 }
-let title_markup = null                       // cached <text data-role="title">...</text>, same for every candidate
+let title_base = null                         // { x, y, ... } anchor from composed logo <text>
 
 const WEIGHTS = [400, 500, 600, 700, 800]
 
@@ -269,8 +290,30 @@ function select(index) {
     el.classList.toggle('selected', +el.dataset.index === index)
   })
   apply()          // positions the newly-flattened icon + current title first...
+  layout_text_parts() // ...space the initial text parts using their real widths...
   fit_logo_width() // ...so the measurement reflects the actual new content
   apply()          // ...then re-apply once more so the primitive sees the final width
+}
+
+function layout_text_parts() {
+  // One-time initial layout: the per-part dx seeded in ensure_title_state() is a
+  // crude character-count estimate that overlaps in proportional fonts. Once the
+  // parts are actually rendered we can measure each and lay them out end-to-end.
+  // Runs only until the user starts editing (guarded by title_laid_out).
+  if (title_laid_out || !title_texts || !title_texts.length) return
+  const base = read_title_base()
+  const gap = (base['font-size'] || 42) * 0.28
+  let x = 0
+  for (let i = 0; i < title_texts.length; i++) {
+    const el = document.querySelector(`#logo-card .panel.light [data-role="text${i}"]`)
+    const p = parts[i]
+    if (!el || !p) continue
+    p.dx = x
+    p.dy = 0
+    x += el.getBBox().width + gap
+  }
+  title_laid_out = true
+  apply()
 }
 
 function fit_logo_width() {
@@ -353,21 +396,23 @@ document.getElementById('grid').addEventListener('pointerdown', e => {
   const scale_x = (vb.width || 96) / box.width
   const scale_y = (vb.height || 96) / box.height
   const start = { x: e.clientX, y: e.clientY, dx: comp_state.dx, dy: comp_state.dy ?? 0 }
-  // Same bounds the now-removed x/y sliders used to enforce, per component kind.
-  // Everything in the logo card (icon, title, primitive) sits on the logo's
-  // own canvas, which is often much wider than 96 units — their horizontal
-  // range scales with its actual width, or they'd be stuck unable to reach
-  // anywhere near its edges (vertical range stays fixed: canvas height is
-  // always 96 regardless of width). Template-card icon layers are the only
-  // case still on a fixed 96-unit canvas, so they keep the fixed ±48.
-  const limit = active.kind === 'title' ? { dx: vb.width / 2, dy: 20 }
-              : active.kind === 'logo'  ? { dx: vb.width / 2, dy: 48 }
-              : { dx: 48, dy: 48 }
+  // Logo components (icon, title, primitives) are unclamped so they can travel
+  // the full canvas and clip past the viewBox edges. The flat icon is anchored
+  // near x=48, so a half-width clamp left it unable to reach the right side.
+  // Template-card layers stay on a 96×96 canvas; ±96 lets them fully exit it.
+  const limit = active.kind === 'layer' ? { dx: 96, dy: 96 } : null
   const clamp = (v, max) => Math.max(-max, Math.min(max, v))
 
   function move(ev) {
-    comp_state.dx = clamp(start.dx + (ev.clientX - start.x) * scale_x, limit.dx)
-    if ('dy' in comp_state) comp_state.dy = clamp(start.dy + (ev.clientY - start.y) * scale_y, limit.dy)
+    const ndx = start.dx + (ev.clientX - start.x) * scale_x
+    const ndy = start.dy + (ev.clientY - start.y) * scale_y
+    if (limit) {
+      comp_state.dx = clamp(ndx, limit.dx)
+      if ('dy' in comp_state) comp_state.dy = clamp(ndy, limit.dy)
+    } else {
+      comp_state.dx = ndx
+      if ('dy' in comp_state) comp_state.dy = ndy
+    }
     apply()
   }
   function up() {
@@ -446,9 +491,10 @@ function set_scheme(scheme) {
 
 // --- Shared row controls (icon layers, logo components, and title parts all use this) ---
 
-function ink_html() {
-  // Swatches assigning this component to the primary (bg), secondary (fg), or accent (ac) color
+function ink_html({ allowDefault = false } = {}) {
+  // Swatches: optional panel-contrast (currentColor), then primary/secondary/accent
   return `<label>color
+    ${allowDefault ? `<button type="button" class="ink-btn ink-default" data-ink="" title="panel contrast"></button>` : ''}
     <button type="button" class="ink-btn" data-ink="bg" title="primary"></button>
     <button type="button" class="ink-btn" data-ink="fg" title="secondary"></button>
     <button type="button" class="ink-btn" data-ink="ac" title="accent"></button>
@@ -461,19 +507,28 @@ function wire_row(row, s, handlers = {}) {
   row.querySelectorAll('input, select').forEach(input => {
     const k = input.dataset.k
     if (k === 'icon' || k === 'typeset') { input.onchange = () => handlers[k](input.value); return }
+    if (input.classList.contains('title-text') || input.classList.contains('title-color')) return
     input.oninput = () => {
       s[k] = input.type === 'checkbox' ? input.checked : +input.value
       apply()
     }
   })
   row.querySelectorAll('.ink-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.ink === s.ink)
+    const btn_ink = btn.dataset.ink || null
+    btn.classList.toggle('active', (s.ink || null) === btn_ink)
     btn.onclick = () => {
-      s.ink = btn.dataset.ink
-      row.querySelectorAll('.ink-btn').forEach(b => b.classList.toggle('active', b.dataset.ink === s.ink))
+      s.ink = btn.dataset.ink || null
+      row.querySelectorAll('.ink-btn').forEach(b => {
+        b.classList.toggle('active', (s.ink || null) === (b.dataset.ink || null))
+      })
       apply()
     }
   })
+}
+
+function fill_for_ink(ink) {
+  // null/undefined → panel text color (contrasts on light and dark canvases)
+  return ink ? ink_css(ink) : 'currentColor'
 }
 
 // --- Per-template icon layer controls (always visible, follow their own card) ---
@@ -598,7 +653,7 @@ function remove_icon_primitive(index, role) {
 function apply_icon_primitive(el, c, index, role) {
   // Icon canvas is always 96×96; w/h are fractions of that edge (same as logo prim)
   el.style.display = c.show ? '' : 'none'
-  if (c.ink) el.setAttribute('fill', ink_css(c.ink))
+  if (c.ink !== undefined) el.setAttribute('fill', fill_for_ink(c.ink))
   const w = 96 * c.w, h = 96 * c.h
   el.setAttribute('width', w); el.setAttribute('height', h)
   el.setAttribute('x', (96 - w) / 2 + c.dx); el.setAttribute('y', (96 - h) / 2 + c.dy)
@@ -624,7 +679,7 @@ function render_prim_row(index, role, ri, roles, container) {
       <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
       <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${c.w}"></label>
       <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${c.h}"></label>
-      ${ink_html()}
+      ${ink_html({ allowDefault: true })}
       <label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>
       <button type="button" class="remove-prim" title="Remove primitive">×</button>
     </div>`
@@ -674,19 +729,20 @@ function render_comp_rows(index, container) {
     const c = comp_state(index, role, { ink: paintable ? (fill.includes('--fg') ? 'fg' : 'bg') : null })
     const name = (chosen[index] || {})[role] || cand.icons[role]
     const row = document.createElement('div')
-    row.className = 'row icon-row'
+    row.className = 'row icon-row' + (paintable ? '' : ' cut-row')
     row.dataset.kind = 'layer'
     row.dataset.index = index
     row.dataset.selRole = role
     row.innerHTML = `${order_html(ri === 0, ri === roles.length - 1)}
       <svg data-thumb="${role}" viewBox="0 0 16 16" class="thumb" fill="currentColor">${state.icon_bodies[name]}</svg>
       <div class="fields">
+        ${paintable ? '' : `<span class="cut-badge" title="Subtractive mask — punches through the layer below">cut</span>`}
         <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
         <label>size <input type="range" data-k="scale" min="0.25" max="1.75" step="0.05" value="${c.scale}"></label>
         <label>icon <select data-k="icon">
           ${state.icon_roles[role].map(n => `<option ${n === ((chosen[index] || {})[role] || cand.icons[role]) ? 'selected' : ''}>${n}</option>`).join('')}
         </select></label>
-        ${paintable ? ink_html() : ''}
+        ${paintable ? ink_html({ allowDefault: true }) : `<span class="cut-hint">subtracts from layer below</span>`}
       </div>`
     wire_row(row, c, { icon: name => set_icon(index, role, name) })
     wire_order(row, dir => move_icon_layer(index, role, dir))
@@ -717,36 +773,161 @@ function swap_icon(el, role, name) {
   el.querySelectorAll(`g[data-role="${role}"]`).forEach(g => { g.innerHTML = state.icon_bodies[name] })
 }
 
-// --- Title part controls ---
+// --- Text part controls (independent absolutely-positioned <text> elements) ---
 
-function render_part_rows(container, stack_index, stack_len) {
-  state.title_parts.forEach((text, i) => {
-    const p = parts[i] || (parts[i] = { show: true, weight: 600, bold: false, scale: 1, dx: 0, dy: 0, typeset: 'geometric' })
-    const row = document.createElement('div')
-    row.className = 'row'
-    row.dataset.kind = 'title'
-    row.dataset.index = i
-    // Stack ↑↓ only on the first title part — moves the whole title in logo.stack
-    const stack_btns = i === 0
-      ? order_html(stack_index === 0, stack_index === stack_len - 1)
-      : `<span class="order" aria-hidden="true"></span>`
-    row.innerHTML = `${stack_btns}
-      <b>“${text}”</b>
-      <div class="fields">
-        <label>show <input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}></label>
-        <label>size <input type="range" data-k="scale" min="0.4" max="1.6" step="0.05" value="${p.scale}"></label>
-        <label>weight <select data-k="weight">
-          ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
-        </select></label>
-        <label>bold <input type="checkbox" data-k="bold" ${p.bold ? 'checked' : ''}></label>
-        <label>typeset <select data-k="typeset">
-          ${Object.keys(state.typesets).map(t => `<option ${t === p.typeset ? 'selected' : ''}>${t}</option>`).join('')}
-        </select></label>
-      </div>`
-    wire_row(row, p, { typeset: t => { p.typeset = t; apply() } })
-    if (i === 0) wire_order(row, dir => move_logo_layer('title', dir))
-    container.appendChild(row)
+function is_text_role(role) {
+  return /^text\d+$/.test(role)
+}
+
+function esc_xml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function esc_attr(s) {
+  return esc_xml(s).replace(/"/g, '&quot;')
+}
+
+function read_title_base() {
+  if (title_base) return title_base
+  const doc = new DOMParser().parseFromString(state.candidates[0].svg_logo, 'image/svg+xml')
+  const t = doc.querySelector('[data-role="title"]')
+  title_base = {
+    x: +t.getAttribute('x'),
+    y: +t.getAttribute('y'),
+    'dominant-baseline': t.getAttribute('dominant-baseline'),
+    'font-family': t.getAttribute('font-family'),
+    'font-weight': t.getAttribute('font-weight'),
+    'font-size': +t.getAttribute('font-size'),
+  }
+  return title_base
+}
+
+function sync_text_stack_keys() {
+  // Initial seed only: append text0..textN-1 after flat (once). Add/remove
+  // mutate the stack in place so interleaved z-order with icon/primitives is kept.
+  if (logo.stack.some(is_text_role)) return
+  title_texts.forEach((_, i) => logo.stack.push(`text${i}`))
+}
+
+function ensure_title_state() {
+  // Own a mutable copy of the composed title strings; each part gets its own
+  // absolute dx/dy so dragging one never pulls the others (they used to share
+  // one <text> with relative tspan offsets, which linked them).
+  if (title_texts) return
+  title_texts = [...state.title_parts]
+  const sep = state.sep ?? ' '
+  const size = read_title_base()['font-size'] || 42
+  let x = 0
+  title_texts.forEach((text, i) => {
+    parts[i] = { ...default_part_state(), dx: x, dy: 0 }
+    // Rough advance so the initial layout still reads left-to-right like compose
+    x += (String(text).length + (i < title_texts.length - 1 ? sep.length : 0)) * size * 0.55
   })
+  sync_text_stack_keys()
+}
+
+function default_part_state() {
+  // color null = panel currentColor (guaranteed contrast on light/dark canvases)
+  return { show: true, color: null, weight: 600, bold: false, scale: 1, dx: 0, dy: 0, typeset: 'geometric' }
+}
+
+function add_title_part() {
+  ensure_title_state()
+  const prev = parts[parts.length - 1]
+  const p = { ...default_part_state(), dx: (prev?.dx || 0) + 48, dy: prev?.dy || 0 }
+  title_texts.push('text')
+  parts.push(p)
+  logo.stack.push(`text${title_texts.length - 1}`)
+  const rows = document.querySelector('#logo-card .rows')
+  render_logo_rows(rows)
+  const row = rows.querySelector(`.row[data-kind="title"][data-index="${title_texts.length - 1}"]`)
+  if (row) select_active(row)
+  else apply()
+}
+
+function remove_title_part(i) {
+  ensure_title_state()
+  if (i < 0 || i >= title_texts.length) return
+  title_texts.splice(i, 1)
+  parts.splice(i, 1)
+  logo.stack = logo.stack
+    .filter(k => k !== `text${i}`)
+    .map(k => {
+      if (!is_text_role(k)) return k
+      const n = +k.slice(4)
+      return n > i ? `text${n - 1}` : k
+    })
+  if (active?.kind === 'title') {
+    if (active.index === i) deselect()
+    else if (active.index > i) active = { kind: 'title', index: active.index - 1 }
+  }
+  const rows = document.querySelector('#logo-card .rows')
+  render_logo_rows(rows)
+  apply()
+}
+
+function text_markup(i) {
+  // One absolute <text> per part — siblings in the logo SVG, independently movable
+  ensure_title_state()
+  const base = read_title_base()
+  const p = parts[i] || default_part_state()
+  return `<text data-role="text${i}" data-part="${i}" ` +
+         `x="${base.x + p.dx}" y="${base.y + p.dy}" ` +
+         `dominant-baseline="${base['dominant-baseline']}" ` +
+         `font-family="${esc_attr(base['font-family'])}" font-weight="${base['font-weight']}" ` +
+         `font-size="${base['font-size']}" fill="currentColor">${esc_xml(title_texts[i] ?? '')}</text>`
+}
+
+function render_text_row(container, i, si, stack_len) {
+  ensure_title_state()
+  const text = title_texts[i] ?? ''
+  const p = parts[i] || (parts[i] = default_part_state())
+  const row = document.createElement('div')
+  row.className = 'row'
+  row.dataset.kind = 'title'
+  row.dataset.index = i
+  row.innerHTML = `${order_html(si === 0, si === stack_len - 1)}
+    <input type="text" class="title-text" value="${esc_attr(text)}" aria-label="Text">
+    <div class="fields">
+      <label>show <input type="checkbox" data-k="show" ${p.show ? 'checked' : ''}></label>
+      <label>size <input type="range" data-k="scale" min="0.4" max="1.6" step="0.05" value="${p.scale}"></label>
+      <label>weight <select data-k="weight">
+        ${WEIGHTS.map(w => `<option ${w === p.weight ? 'selected' : ''}>${w}</option>`).join('')}
+      </select></label>
+      <label>bold <input type="checkbox" data-k="bold" ${p.bold ? 'checked' : ''}></label>
+      <label>typeset <select data-k="typeset">
+        ${Object.keys(state.typesets).map(t => `<option ${t === p.typeset ? 'selected' : ''}>${t}</option>`).join('')}
+      </select></label>
+      <label>color
+        <input type="color" class="title-color" value="${p.color || '#71717a'}" title="Custom color">
+        <button type="button" class="color-default ${p.color ? '' : 'active'}" title="Default (panel contrast)">A</button>
+      </label>
+      <button type="button" class="remove-prim" title="Remove text">×</button>
+    </div>`
+  wire_row(row, p, { typeset: t => { p.typeset = t; apply() } })
+  row.querySelector('.title-text').oninput = e => {
+    title_texts[i] = e.target.value
+    apply()
+  }
+  const color_input = row.querySelector('.title-color')
+  const color_default = row.querySelector('.color-default')
+  color_input.oninput = () => {
+    p.color = color_input.value
+    color_default.classList.remove('active')
+    apply()
+  }
+  color_default.onclick = e => {
+    e.stopPropagation()
+    p.color = null
+    color_default.classList.add('active')
+    apply()
+  }
+  row.querySelector('.remove-prim').onclick = e => {
+    e.stopPropagation()
+    remove_title_part(i)
+  }
+  wire_order(row, dir => move_logo_layer(`text${i}`, dir))
+  container.appendChild(row)
 }
 
 // --- Logo card: flattened selected icon + optional bg shapes + title, all controls below ---
@@ -782,15 +963,15 @@ function move_logo_layer(key, dir) {
   if (!swap_adjacent(logo.stack, logo.stack.indexOf(key), dir)) return
   const rows = document.querySelector('#logo-card .rows')
   render_logo_rows(rows)
-  // Reselect the moved layer's row
-  const row = key === 'title'
-    ? rows.querySelector('.row[data-kind="title"]')
+  const row = is_text_role(key)
+    ? rows.querySelector(`.row[data-kind="title"][data-index="${key.slice(4)}"]`)
     : rows.querySelector(`.row[data-kind="logo"][data-sel-role="${key}"]`)
   if (row) select_active(row)
   else apply()
 }
 
 function render_logo_rows(rows) {
+  ensure_title_state()
   // Canvas width stays pinned first; visual layers follow logo.stack (back-to-front)
   const keep_active = active && (active.kind === 'logo' || active.kind === 'title') ? { ...active } : null
   rows.innerHTML = ''
@@ -809,8 +990,8 @@ function render_logo_rows(rows) {
   rows.appendChild(width_row)
 
   logo.stack.forEach((key, si) => {
-    if (key === 'title') {
-      render_part_rows(rows, si, logo.stack.length)
+    if (is_text_role(key)) {
+      render_text_row(rows, +key.slice(4), si, logo.stack.length)
       return
     }
     const c = logo[key]
@@ -832,7 +1013,7 @@ function render_logo_rows(rows) {
           <label>show <input type="checkbox" data-k="show" ${c.show ? 'checked' : ''}></label>
           <label>width <input type="range" data-k="w" min="0.1" max="1.5" step="0.05" value="${c.w}"></label>
           <label>height <input type="range" data-k="h" min="0.1" max="1.5" step="0.05" value="${c.h}"></label>
-          ${ink_html()}
+          ${ink_html({ allowDefault: true })}
           <label>round <input type="range" data-k="rx" min="0" max="48" value="${c.rx}"></label>
           <button type="button" class="remove-prim" title="Remove primitive">×</button>
         </div>`
@@ -847,14 +1028,23 @@ function render_logo_rows(rows) {
     rows.appendChild(row)
   })
 
-  const add = document.createElement('div')
-  add.className = 'row add-row'
-  add.innerHTML = `<button type="button">+ primitive</button>`
-  add.querySelector('button').onclick = e => {
+  const add_text = document.createElement('div')
+  add_text.className = 'row add-row'
+  add_text.innerHTML = `<button type="button">+ text</button>`
+  add_text.querySelector('button').onclick = e => {
+    e.stopPropagation()
+    add_title_part()
+  }
+  rows.appendChild(add_text)
+
+  const add_prim = document.createElement('div')
+  add_prim.className = 'row add-row'
+  add_prim.innerHTML = `<button type="button">+ primitive</button>`
+  add_prim.querySelector('button').onclick = e => {
     e.stopPropagation()
     add_logo_primitive()
   }
-  rows.appendChild(add)
+  rows.appendChild(add_prim)
 
   if (keep_active) {
     const row = keep_active.kind === 'title'
@@ -879,17 +1069,8 @@ function logo_card() {
   return el
 }
 
-function extract_title() {
-  // Cache the title markup: identical across every candidate's svg_logo, and
-  // static for the whole session (title doesn't change on regenerate)
-  if (!title_markup) {
-    const doc = new DOMParser().parseFromString(state.candidates[0].svg_logo, 'image/svg+xml')
-    title_markup = doc.querySelector('[data-role="title"]').outerHTML
-  }
-  return title_markup
-}
-
 function rebuild_logo_dom() {
+  ensure_title_state()
   const logo_card_el = document.getElementById('logo-card')
   const src = document.querySelector(`.card[data-index="${selected}"] .panel.light .main svg`)
   if (!logo_card_el || !src) return
@@ -900,10 +1081,10 @@ function rebuild_logo_dom() {
     // Phase 1 may have marked a source layer with active-drag — strip it so
     // editor-only UI state never leaks into the frozen flattened snapshot
     flat: `<svg data-role="flat" x="0" y="0" width="96" height="96" viewBox="0 0 96 96">${frozen}</svg>`,
-    title: extract_title(),
   }
   for (const key of logo.stack) {
-    if (is_logo_prim_role(key)) pieces[key] = prim_markup(key)
+    if (is_text_role(key)) pieces[key] = text_markup(+key.slice(4))
+    else if (is_logo_prim_role(key)) pieces[key] = prim_markup(key)
   }
   // Placeholder width only: apply() immediately recomputes it from actual rendered
   // content (or the user's manual override) before anything is shown on screen
@@ -940,6 +1121,7 @@ function apply() {
         // or removing the mask attribute on the (unmasked) target repaints
         // reliably. data-masked-by is a stable marker (never removed) so the
         // target is always findable even once its mask attribute is gone.
+        // Cut shapes stay fill="#000" inside the mask — never retinted.
         const target = el.closest('svg').querySelector(`[data-masked-by="${mask_el.id}"]`)
         if (target) {
           if (c.show) target.setAttribute('mask', `url(#${mask_el.id})`)
@@ -947,9 +1129,9 @@ function apply() {
         }
       } else {
         el.style.display = c.show ? '' : 'none'
+        if (c.ink !== undefined) el.setAttribute('fill', fill_for_ink(c.ink))
       }
 
-      if (c.ink) el.setAttribute('fill', ink_css(c.ink))
       const size = +el.dataset.size * c.scale
       el.setAttribute('transform', `translate(${48 + +el.dataset.dx + c.dx - size * 48} ` +
                                    `${48 + c.dy - size * 48}) scale(${size * 6})`)
@@ -973,7 +1155,7 @@ function apply() {
   // Force-hide logo lprim* so they can't skew the width measurement below;
   // top-level only — iprim* inside the flattened icon keep phase-1 geometry
   for (const el of logo_el.querySelectorAll('.main > svg > [data-role^="lprim"]')) el.style.display = 'none'
-  for (const el of logo_el.querySelectorAll('[data-role="title"]')) apply_title(el)
+  for (const el of logo_el.querySelectorAll('.main > svg > [data-role^="text"]')) apply_text_part(el)
   for (const el of logo_el.querySelectorAll('svg[data-role="flat"]')) {
     const c = logo.flat
     el.style.display = c.show ? '' : 'none'
@@ -999,7 +1181,7 @@ function apply() {
     const c = logo[el.dataset.role]
     if (!c) continue
     el.style.display = c.show ? '' : 'none'
-    if (c.ink) el.setAttribute('fill', ink_css(c.ink))
+    if (c.ink !== undefined) el.setAttribute('fill', fill_for_ink(c.ink))
     const vbw = el.ownerSVGElement.viewBox.baseVal.width
     const w = vbw * c.w, h = 96 * c.h
     el.setAttribute('width', w); el.setAttribute('height', h)
@@ -1009,24 +1191,22 @@ function apply() {
   }
 }
 
-function apply_title(text) {
-  // Per-part styling. Color is deliberately NOT assigned from primary/secondary
-  // here: title text sits directly on the page (not a painted icon backing), so
-  // it keeps inheriting currentColor from its <text> parent — that panel-native
-  // color is guaranteed to contrast (dark text on the light panel, light text on
-  // the dark one), whereas the secondary/fg color can be near-white and vanish
-  // against the light panel's own near-white background.
-  text.querySelectorAll('tspan').forEach((span, i) => {
-    const p = parts[i]
-    if (!p) return
-    span.style.display = p.show ? '' : 'none'
-    span.setAttribute('font-family', state.typesets[p.typeset])
-    span.setAttribute('font-weight', p.bold ? 700 : p.weight)
-    span.setAttribute('font-size', 42 * p.scale)
-    span.setAttribute('dx', p.dx)
-    span.setAttribute('dy', p.dy)
-    span.classList.toggle('active-drag', active?.kind === 'title' && active.index === i)
-  })
+function apply_text_part(el) {
+  // Each text part is its own <text> with absolute x/y (base + dx/dy), so parts
+  // move independently — unlike the old shared-<text>/relative-tspan setup.
+  const i = +el.dataset.part
+  const p = parts[i]
+  if (!p) return
+  const base = read_title_base()
+  el.style.display = p.show ? '' : 'none'
+  el.textContent = title_texts[i] ?? ''
+  el.setAttribute('font-family', state.typesets[p.typeset])
+  el.setAttribute('font-weight', p.bold ? 700 : p.weight)
+  el.setAttribute('font-size', base['font-size'] * p.scale)
+  el.setAttribute('x', base.x + p.dx)
+  el.setAttribute('y', base.y + p.dy)
+  el.setAttribute('fill', p.color || 'currentColor')
+  el.classList.toggle('active-drag', active?.kind === 'title' && active.index === i)
 }
 
 // --- Save ---
